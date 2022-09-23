@@ -202,7 +202,7 @@ describe("casier", () => {
   it("Deposit to close vault TA: u: 0, m: 0, a: 100", async () => {
     const userIndex = 0;
     const mintIndex = 0;
-    const deposit_amount = 100;
+    const deposit_amount = new anchor.BN(100);
 
     const { beforeAmount, finalAmount } = await getCheckAmounts(
       "deposit",
@@ -242,7 +242,7 @@ describe("casier", () => {
   it("Withdraw: u: 0, m: 0, a: 1", async () => {
     const userIndex = 0;
     const mintIndex = 0;
-    const withdrawAmount = 1;
+    const withdrawAmount = new anchor.BN(1);
     const withTransfer = true;
 
     const { beforeAmount, finalAmount } = await getCheckAmounts(
@@ -291,7 +291,7 @@ describe("casier", () => {
   it("Deposit to open vault TA: u: 0, m: 0, a: 1", async () => {
     const userIndex = 0;
     const mintIndex = 0;
-    const deposit_amount = 1;
+    const deposit_amount = new anchor.BN(1);
 
     const { beforeAmount, finalAmount } = await getCheckAmounts(
       "deposit",
@@ -341,7 +341,7 @@ describe("casier", () => {
   it("Withdraw to closed user TA: u: 0, m: 0, a: 1", async () => {
     const userIndex = 0;
     const mintIndex = 0;
-    const withdrawAmount = 1;
+    const withdrawAmount = new anchor.BN(1);
     const withTransfer = true;
 
     const { beforeAmount, finalAmount } = await getCheckAmounts(
@@ -389,7 +389,7 @@ describe("casier", () => {
   it("Withdraw & set a lower final amount to burn the tokens: u: 0, m: 0, a: 1", async () => {
     const userIndex = 0;
     const mintIndex = 0;
-    const withdrawAmount = 0;
+    const withdrawAmount = new anchor.BN(0);
     const missingTokens = 3;
     const withTransfer = true;
 
@@ -401,7 +401,7 @@ describe("casier", () => {
         withdrawAmount,
         withTransfer
       );
-    const finalAmount = tempFinalAmount - missingTokens;
+    const finalAmount = new anchor.BN(tempFinalAmount.toNumber() - missingTokens);
 
     const user = users[userIndex];
     const mint = mints[mintIndex];
@@ -453,8 +453,8 @@ describe("casier", () => {
       burnTokenAccount.value.data.parsed.info.tokenAmount.uiAmount
     );
     assert.strictEqual(
-      finalAmount,
-      vaultAccount.value.data.parsed.info.tokenAmount.uiAmount
+      finalAmount.toString(),
+      vaultAccount.value.data.parsed.info.tokenAmount.uiAmount.toString()
     );
     await afterChecks(mintIndex, vaultTa, locker, finalAmount, mint);
   });
@@ -468,7 +468,7 @@ describe("casier", () => {
       "withdraw",
       userIndex,
       mintIndex,
-      0,
+      new anchor.BN(0),
       withTransfer
     );
 
@@ -519,11 +519,11 @@ async function getCheckAmounts(
   txType: "deposit" | "withdraw",
   userIndex: number,
   mintIndex: number,
-  withdrawAmount: number,
+  withdrawAmount: anchor.BN,
   withTransfer: boolean = true
 ): Promise<{
-  beforeAmount: number;
-  finalAmount: number;
+  beforeAmount: anchor.BN;
+  finalAmount: anchor.BN;
   lockerAccount: any;
   lockerMintIndex: number;
 }> {
@@ -534,20 +534,20 @@ async function getCheckAmounts(
     (v) => v.toString() === mints[mintIndex].toString()
   );
   let beforeAmount =
-    lockerMintIndex !== -1 ? lockerAccount.amounts[lockerMintIndex] : 0;
+    lockerMintIndex !== -1 ? lockerAccount.amounts[lockerMintIndex] : new anchor.BN(0);
   const sign = txType == "deposit" ? 1 : -1;
   let finalAmount = withTransfer
-    ? beforeAmount + sign * withdrawAmount
+    ? new anchor.BN(beforeAmount.toNumber() + sign * withdrawAmount.toNumber())
     : beforeAmount;
   return { beforeAmount, finalAmount, lockerAccount, lockerMintIndex };
 }
 
 async function afterChecks(
-  mintIndex,
-  vaultTa,
-  locker,
-  finalAmount,
-  mint
+  mintIndex: number,
+  vaultTa: anchor.web3.PublicKey,
+  locker: anchor.web3.PublicKey,
+  finalAmount: anchor.BN,
+  mint: string,
 ): Promise<void> {
   const vaultAccount = await provider.connection.getParsedAccountInfo(vaultTa);
   const lockerAccount = await program.account.locker.fetch(locker);
@@ -555,15 +555,15 @@ async function afterChecks(
     (v) => v.toString() === mints[mintIndex].toString()
   );
 
-  if (finalAmount) {
-    assert.strictEqual(lockerAccount.amounts[lockerMintIndex], finalAmount);
+  if (finalAmount.toString() !== '0') {
+    assert.strictEqual(lockerAccount.amounts[lockerMintIndex].toString(), finalAmount.toString());
     assert.strictEqual(
       lockerAccount.mints[lockerMintIndex].toString(),
       mint.toString()
     );
     assert.strictEqual(
-      (vaultAccount.value.data as any).parsed.info.tokenAmount.uiAmount,
-      finalAmount
+      (vaultAccount.value.data as any).parsed.info.tokenAmount.uiAmount.toString(),
+      finalAmount.toString()
     );
   } else {
     assert.isNull(vaultAccount.value);
