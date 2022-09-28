@@ -390,7 +390,7 @@ describe("casier", () => {
     const userIndex = 0;
     const mintIndex = 0;
     const withdrawAmount = new anchor.BN(0);
-    const missingTokens = 3;
+    const missingTokens = new anchor.BN(3);
     const withTransfer = true;
 
     const { beforeAmount, finalAmount: tempFinalAmount } =
@@ -401,8 +401,7 @@ describe("casier", () => {
         withdrawAmount,
         withTransfer
       );
-    const finalAmount = new anchor.BN(tempFinalAmount.toNumber() - missingTokens);
-
+    const finalAmount = tempFinalAmount.sub(missingTokens);
     const user = users[userIndex];
     const mint = mints[mintIndex];
     const userTa = tokenAccounts[userIndex][mintIndex];
@@ -449,8 +448,8 @@ describe("casier", () => {
     );
 
     assert.strictEqual(
-      missingTokens,
-      burnTokenAccount.value.data.parsed.info.tokenAmount.uiAmount
+      missingTokens.toString(),
+      burnTokenAccount.value.data.parsed.info.tokenAmount.uiAmount.toString()
     );
     assert.strictEqual(
       finalAmount.toString(),
@@ -535,9 +534,9 @@ async function getCheckAmounts(
   );
   let beforeAmount =
     lockerMintIndex !== -1 ? lockerAccount.amounts[lockerMintIndex] : new anchor.BN(0);
-  const sign = txType == "deposit" ? 1 : -1;
+  const sign = txType == "deposit" ? new anchor.BN(1) : new anchor.BN(-1);
   let finalAmount = withTransfer
-    ? new anchor.BN(beforeAmount.toNumber() + sign * withdrawAmount.toNumber())
+    ? beforeAmount.add(sign.mul(withdrawAmount))
     : beforeAmount;
   return { beforeAmount, finalAmount, lockerAccount, lockerMintIndex };
 }
