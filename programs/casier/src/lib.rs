@@ -8,7 +8,7 @@ use anchor_lang::solana_program::{pubkey::Pubkey, rent::Rent};
 use anchor_spl;
 use std::collections::BTreeMap;
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("FLoc9nBwGb2ayzVzb5GC9NttuPY3CxMhd4KDnApr79Ab");
 
 #[program]
 pub mod casier {
@@ -40,8 +40,8 @@ pub mod casier {
     pub fn deposit<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, Deposit>,
         vault_bump: u8,
-        deposit_amount: u32,
-        before_amount: u32,
+        deposit_amount: u64,
+        before_amount: u64,
     ) -> Result<()> {
         let locker = &mut ctx.accounts.locker;
         let mk = ctx.accounts.mint.key();
@@ -116,9 +116,9 @@ pub mod casier {
     pub fn withdraw<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, Withdraw>,
         vault_bump: u8,
-        withdraw_amount: u32,
-        before_amount: u32,
-        final_amount: u32,
+        withdraw_amount: u64,
+        before_amount: u64,
+        final_amount: u64,
         with_transfer: bool,
     ) -> Result<()> {
         let locker = &mut ctx.accounts.locker;
@@ -131,8 +131,8 @@ pub mod casier {
                 if locker.amounts[i] != before_amount {
                     return Err(error!(ErrorCode::InvalidBeforeState));
                 // if final amount is lower than the amounts of tokens that will be left, we should call withdraw_and_burn
-                } else if (final_amount as u64)
-                    < ctx.accounts.vault_ta.amount - (withdraw_amount as u64)
+                } else if (final_amount)
+                    < ctx.accounts.vault_ta.amount - withdraw_amount
                 {
                     return Err(error!(ErrorCode::BurnRequired));
                 }
@@ -203,9 +203,9 @@ pub mod casier {
         ctx: Context<'a, 'b, 'c, 'info, WithdrawAndBurn>,
         vault_bump: u8,
         burn_bump: u8,
-        withdraw_amount: u32,
-        before_amount: u32,
-        final_amount: u32,
+        withdraw_amount: u64,
+        before_amount: u64,
+        final_amount: u64,
         with_transfer: bool,
     ) -> Result<()> {
         if ctx.accounts.vault_ta.amount <= final_amount.into() {
@@ -335,7 +335,7 @@ pub mod casier {
                     &[vault_bump],
                 ]],
             ),
-            ctx.accounts.vault_ta.amount - final_amount as u64,
+            ctx.accounts.vault_ta.amount - final_amount,
         )?;
         ctx.accounts.vault_ta.reload()?;
         if ctx.accounts.vault_ta.amount == 0 {
