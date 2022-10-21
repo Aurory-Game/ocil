@@ -178,7 +178,7 @@ pub struct Config {
 pub struct Locker {
     pub owner: Pubkey,
     pub mints: Vec<Pubkey>,
-    pub amounts: Vec<u32>,
+    pub amounts: Vec<u64>,
     pub version: u8,
     pub space: u64,
 }
