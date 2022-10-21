@@ -1,3 +1,4 @@
+use crate::state::CustomErrorCode;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{
     entrypoint::ProgramResult,
@@ -114,7 +115,7 @@ pub fn spl_init_token_account(params: InitializeTokenAccountParams<'_, '_>) -> R
         )?,
         &[account, mint, owner, token_program, rent],
     );
-    return result.map_err(|_| ErrorCode2::TransferFail2.into());
+    return result.map_err(|_| CustomErrorCode::TransferFail2.into());
 }
 
 pub fn spl_init_token_account2(params: InitializeTokenAccountParams<'_, '_>) -> Result<()> {
@@ -138,7 +139,7 @@ pub fn spl_init_token_account2(params: InitializeTokenAccountParams<'_, '_>) -> 
         )?,
         &[account, mint, owner, token_program, rent],
     );
-    return result.map_err(|_| ErrorCode2::TransferFail2.into());
+    return result.map_err(|_| CustomErrorCode::TransferFail2.into());
 }
 
 pub struct TokenTransferParams<'a: 'b, 'b> {
@@ -179,11 +180,5 @@ pub fn spl_token_transfer(params: TokenTransferParams<'_, '_>) -> Result<()> {
         &[authority_signer_seeds],
     );
 
-    return result.map_err(|_| ErrorCode2::TransferFail2.into());
-}
-
-#[error_code]
-pub enum ErrorCode2 {
-    #[msg("Transfer failed2.")]
-    TransferFail2,
+    return result.map_err(|_| CustomErrorCode::TransferFail2.into());
 }
