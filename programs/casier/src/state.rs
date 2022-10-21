@@ -1,3 +1,4 @@
+use anchor_lang::error_code;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
@@ -181,4 +182,30 @@ pub struct Locker {
     pub amounts: Vec<u64>,
     pub version: u8,
     pub space: u64,
+}
+
+#[anchor_lang::error_code]
+pub enum CustomErrorCode {
+    #[msg("Invalid vault.")]
+    InvalidVault,
+    #[msg("Invalid before state.")]
+    InvalidBeforeState,
+    #[msg("Invalid before state.")]
+    InvalidBeforeState2,
+    #[msg("Invalid before state.")]
+    InvalidBeforeState3,
+    #[msg("Invalid before state.")]
+    InvalidBeforeState4,
+    #[msg("Trying to withdraw a mint not in locker..")]
+    WithdrawForMintNotInLocker,
+    #[msg("InvalidFinalState: FinalState.")]
+    InvalidFinalState,
+    #[msg("BurnNotRequired")]
+    BurnNotRequired,
+    #[msg("BurnRequired")]
+    BurnRequired,
+    #[msg("Transfer failed2.")]
+    TransferFail2,
+    #[msg("Not enough tokens in vault")]
+    NotEnoughTokensInVault,
 }

@@ -1,6 +1,7 @@
 pub mod state;
 pub mod utils;
 
+use crate::state::CustomErrorCode;
 use crate::state::*;
 use crate::utils::*;
 use anchor_lang::prelude::*;
@@ -48,14 +49,14 @@ pub mod casier {
         match locker.mints.iter().position(|&lm| lm == mk) {
             None => {
                 if before_amount > 0 {
-                    return Err(error!(ErrorCode::InvalidBeforeState));
+                    return Err(error!(CustomErrorCode::InvalidBeforeState));
                 }
                 locker.mints.push(mk);
                 locker.amounts.push(deposit_amount);
             }
             Some(i) => {
                 if before_amount != locker.amounts[i] {
-                    return Err(error!(ErrorCode::InvalidBeforeState2));
+                    return Err(error!(CustomErrorCode::InvalidBeforeState2));
                 }
                 locker.amounts[i] += deposit_amount;
             }
@@ -91,7 +92,7 @@ pub mod casier {
             vault_ta.owner == vault_ta.key() && vault_ta.mint == ctx.accounts.mint.key();
 
         if !is_valid_vault {
-            return Err(error!(ErrorCode::InvalidVault));
+            return Err(error!(CustomErrorCode::InvalidVault));
         }
 
         spl_token_transfer(TokenTransferParams {
@@ -125,15 +126,20 @@ pub mod casier {
         let mk = ctx.accounts.mint.key();
         match locker.mints.iter().position(|&lm| lm == mk) {
             None => {
-                return Err(error!(ErrorCode::WithdrawForMintNotInLocker));
+                return Err(error!(CustomErrorCode::WithdrawForMintNotInLocker));
             }
             Some(i) => {
+                let vault_remaining = ctx
+                    .accounts
+                    .vault_ta
+                    .amount
+                    .checked_sub(withdraw_amount)
+                    .ok_or_else(|| CustomErrorCode::NotEnoughTokensInVault)?;
+
                 if locker.amounts[i] != before_amount {
-                    return Err(error!(ErrorCode::InvalidBeforeState));
+                    return Err(error!(CustomErrorCode::InvalidBeforeState));
                 // if final amount is lower than the amounts of tokens that will be left, we should call withdraw_and_burn
-                } else if (final_amount)
-                    < ctx.accounts.vault_ta.amount - withdraw_amount
-                {
+                } else if (final_amount) < ctx.accounts.vault_ta.amount - withdraw_amount {
                     return Err(error!(ErrorCode::BurnRequired));
                 }
                 if final_amount > 0 {
@@ -209,7 +215,7 @@ pub mod casier {
         with_transfer: bool,
     ) -> Result<()> {
         if ctx.accounts.vault_ta.amount <= final_amount.into() {
-            return Err(error!(ErrorCode::BurnNotRequired));
+            return Err(error!(CustomErrorCode::BurnNotRequired));
         }
         let withdrawAccounts = &mut Withdraw {
             config: ctx.accounts.config.clone(),
@@ -232,18 +238,12 @@ pub mod casier {
         let mk = ctx.accounts.mint.key();
         match locker.mints.iter().position(|&lm| lm == mk) {
             None => {
-                return Err(error!(ErrorCode::WithdrawForMintNotInLocker));
+                return Err(error!(CustomErrorCode::WithdrawForMintNotInLocker));
             }
             Some(i) => {
                 if locker.amounts[i] != before_amount {
-                    return Err(error!(ErrorCode::InvalidBeforeState));
+                    return Err(error!(CustomErrorCode::InvalidBeforeState));
                 }
-                // if final amount is lower than the amounts of tokens that will be left, we should call withdraw_and_burn
-                // } else if (final_amount as u64)
-                //     < ctx.accounts.vault_ta.amount - (withdraw_amount as u64)
-                // {
-                //     return Err(error!(ErrorCode::BurnRequired));
-                // }
                 if final_amount > 0 {
                     locker.amounts[i] = final_amount;
                 } else {
@@ -355,26 +355,4 @@ pub mod casier {
         }
         Ok(())
     }
-}
-
-#[error_code]
-pub enum ErrorCode {
-    #[msg("Invalid vault.")]
-    InvalidVault,
-    #[msg("Invalid before state.")]
-    InvalidBeforeState,
-    #[msg("Invalid before state.")]
-    InvalidBeforeState2,
-    #[msg("Invalid before state.")]
-    InvalidBeforeState3,
-    #[msg("Invalid before state.")]
-    InvalidBeforeState4,
-    #[msg("Trying to withdraw a mint not in locker..")]
-    WithdrawForMintNotInLocker,
-    #[msg("InvalidFinalState: FinalState.")]
-    InvalidFinalState,
-    #[msg("BurnNotRequired")]
-    BurnNotRequired,
-    #[msg("BurnRequired")]
-    BurnRequired,
 }
