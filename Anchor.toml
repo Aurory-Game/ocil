@@ -3,6 +3,9 @@ seeds = false
 [programs.localnet]
 casier = "FLoc9nBwGb2ayzVzb5GC9NttuPY3CxMhd4KDnApr79Ab"
 
+[programs.mainnet]
+casier = "CAsieqooSrgVxhgWRwh21gyjq7Rmuhmo4qTW9XzXtAvW"
+
 [registry]
 url = "https://anchor.projectserum.com"
 
