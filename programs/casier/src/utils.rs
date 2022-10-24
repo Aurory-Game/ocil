@@ -166,7 +166,7 @@ pub fn spl_token_transfer(params: TokenTransferParams<'_, '_>) -> Result<()> {
         authority_signer_seeds,
     } = params;
 
-    let result = invoke_signed(
+    let result = invoke(
         &spl_token::instruction::transfer(
             token_program.key,
             source.key,
@@ -176,7 +176,6 @@ pub fn spl_token_transfer(params: TokenTransferParams<'_, '_>) -> Result<()> {
             amount,
         )?,
         &[source, destination, authority, token_program],
-        &[authority_signer_seeds],
     );
 
     return result.map_err(|_| ErrorCode2::TransferFail2.into());

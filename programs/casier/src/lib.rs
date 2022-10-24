@@ -8,7 +8,7 @@ use anchor_lang::solana_program::{pubkey::Pubkey, rent::Rent};
 use anchor_spl;
 use std::collections::BTreeMap;
 
-declare_id!("FLoc9nBwGb2ayzVzb5GC9NttuPY3CxMhd4KDnApr79Ab");
+declare_id!("CAsieqooSrgVxhgWRwh21gyjq7Rmuhmo4qTW9XzXtAvW");
 
 #[program]
 pub mod casier {
@@ -61,14 +61,11 @@ pub mod casier {
             }
         }
         if *(ctx.accounts.vault_ta.to_account_info().owner) != ctx.accounts.token_program.key() {
-            let mc = &ctx.accounts.mint.clone();
-            let pk = &mc.key().clone();
-            let pkr = pk.as_ref();
-            let oc = &ctx.accounts.owner.clone();
-            let opk = &oc.key().clone();
-            let opkr = opk.as_ref();
-
-            let vault_account_seeds = &[pkr, opkr, &[vault_bump]];
+            let vault_account_seeds = &[
+                ctx.accounts.mint.to_account_info().key.as_ref(),
+                ctx.accounts.owner.key.as_ref(),
+                &[vault_bump],
+            ];
             let vault_account_signer = &vault_account_seeds[..];
 
             // initialize nft vault account
@@ -131,9 +128,7 @@ pub mod casier {
                 if locker.amounts[i] != before_amount {
                     return Err(error!(ErrorCode::InvalidBeforeState));
                 // if final amount is lower than the amounts of tokens that will be left, we should call withdraw_and_burn
-                } else if (final_amount)
-                    < ctx.accounts.vault_ta.amount - withdraw_amount
-                {
+                } else if (final_amount) < ctx.accounts.vault_ta.amount - withdraw_amount {
                     return Err(error!(ErrorCode::BurnRequired));
                 }
                 if final_amount > 0 {
