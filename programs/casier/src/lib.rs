@@ -127,6 +127,8 @@ pub mod casier {
             Some(i) => {
                 if locker.amounts[i] != before_amount {
                     return Err(error!(ErrorCode::InvalidBeforeState));
+                } else if withdraw_amount > ctx.accounts.vault_ta.amount {
+                    return Err(error!(ErrorCode::InvalidWithdrawAmount));
                 // if final amount is lower than the amounts of tokens that will be left, we should call withdraw_and_burn
                 } else if (final_amount) < ctx.accounts.vault_ta.amount - withdraw_amount {
                     return Err(error!(ErrorCode::BurnRequired));
@@ -372,4 +374,6 @@ pub enum ErrorCode {
     BurnNotRequired,
     #[msg("BurnRequired")]
     BurnRequired,
+    #[msg("InvalidWithdrawAmount")]
+    InvalidWithdrawAmount,
 }
