@@ -418,7 +418,7 @@ pub mod casier {
                 },
                 &[&[
                     ctx.accounts.mint.key().as_ref(),
-                    ctx.accounts.user_ta_owner.key().as_ref(),
+                    ctx.accounts.locker.owner.key().as_ref(),
                     &[vault_bump],
                 ]],
             ),
@@ -459,7 +459,7 @@ pub mod casier {
                     },
                     &[&[
                         ctx.accounts.mint.key().as_ref(),
-                        ctx.accounts.user_ta_owner.key().as_ref(),
+                        ctx.accounts.locker.owner.key().as_ref(),
                         &[vault_bump],
                     ]],
                 ),
