@@ -78,6 +78,41 @@ pub struct Withdraw<'info> {
 }
 
 #[derive(Accounts)]
+pub struct WithdrawV2<'info> {
+    #[account(
+        seeds = [ b"config".as_ref() ],
+        bump,
+        has_one = admin,
+        constraint = !config.is_frozen
+    )]
+    pub config: Account<'info, Config>,
+    #[account(mut)]
+    pub locker: Account<'info, Locker>,
+    pub mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(mut)]
+    /// CHECK:
+    pub user_ta: UncheckedAccount<'info>,
+    /// CHECK:
+    #[account(mut)]
+    pub user_ta_owner: AccountInfo<'info>,
+    #[account(
+        mut,
+        has_one = mint,
+        constraint = vault_ta.owner == vault_ta.key(),
+    )]
+    pub vault_ta: Account<'info, TokenAccount>,
+    /// CHECK:
+    #[account(mut)]
+    pub burn_ta: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
 pub struct WithdrawAndBurn<'info> {
     #[account(
         seeds = [ b"config".as_ref() ],
@@ -153,18 +188,18 @@ pub struct InitLocker<'info> {
 #[instruction(_space: u64)]
 pub struct IncreaseLockerSize {
     // #[account(
-//     mut,
-//     seeds = [ fee_payer.key().as_ref() ],
-//     bump,
-//     realloc = _space
-//     payer = fee_payer,
-//     space = _space as usize
-// )]
-// locker: Account<'info, Locker>,
-// #[account(mut)]
-// fee_payer: Signer<'info>,
-// system_program: Program<'info, System>,
-// rent: Sysvar<'info, Rent>,
+    //     mut,
+    //     seeds = [ fee_payer.key().as_ref() ],
+    //     bump,
+    //     realloc = _space
+    //     payer = fee_payer,
+    //     space = _space as usize
+    // )]
+    // locker: Account<'info, Locker>,
+    // #[account(mut)]
+    // fee_payer: Signer<'info>,
+    // system_program: Program<'info, System>,
+    // rent: Sysvar<'info, Rent>,
 }
 
 #[account]
@@ -181,4 +216,35 @@ pub struct Locker {
     pub amounts: Vec<u64>,
     pub version: u8,
     pub space: u64,
+}
+
+#[error_code]
+pub enum ErrorCode {
+    #[msg("Invalid vault.")]
+    InvalidVault,
+    #[msg("Invalid before state.")]
+    InvalidBeforeState,
+    #[msg("Invalid before state.")]
+    InvalidBeforeState2,
+    #[msg("Invalid before state.")]
+    InvalidBeforeState3,
+    #[msg("Invalid before state.")]
+    InvalidBeforeState4,
+    #[msg("Trying to withdraw a mint not in locker..")]
+    WithdrawForMintNotInLocker,
+    #[msg("InvalidFinalState: FinalState.")]
+    InvalidFinalState,
+    #[msg("BurnNotRequired")]
+    BurnNotRequired,
+    #[msg("BurnRequired")]
+    BurnRequired,
+    #[msg("InsufficientFunds")]
+    InsufficientFunds,
+}
+
+pub enum WithdrawType {
+    Owner,
+    OwnerBurn,
+    NonOwner,
+    NonOwnerBurn,
 }

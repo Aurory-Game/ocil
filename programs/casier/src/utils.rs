@@ -1,3 +1,4 @@
+use crate::state::{Locker, WithdrawType};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{
     entrypoint::ProgramResult,
@@ -179,6 +180,27 @@ pub fn spl_token_transfer(params: TokenTransferParams<'_, '_>) -> Result<()> {
     );
 
     return result.map_err(|_| ErrorCode2::TransferFail2.into());
+}
+
+pub fn get_withdraw_type(
+    locker: &mut Account<Locker>,
+    dest_owner: Pubkey,
+    final_amount: u64,
+    vault_ta_amount: u64,
+    withdraw_amount: u64,
+) -> WithdrawType {
+    let needBurn = final_amount < vault_ta_amount - withdraw_amount;
+    if (locker.owner == dest_owner) {
+        if needBurn {
+            return WithdrawType::OwnerBurn;
+        }
+        return WithdrawType::Owner;
+    }
+
+    if needBurn {
+        return WithdrawType::NonOwnerBurn;
+    }
+    WithdrawType::NonOwner
 }
 
 #[error_code]

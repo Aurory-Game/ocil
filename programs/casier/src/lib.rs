@@ -1,14 +1,15 @@
 pub mod state;
 pub mod utils;
 
-use crate::state::*;
+use crate::state::{ErrorCode, *};
 use crate::utils::*;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{pubkey::Pubkey, rent::Rent};
 use anchor_spl;
 use std::collections::BTreeMap;
 
-declare_id!("CAsieqooSrgVxhgWRwh21gyjq7Rmuhmo4qTW9XzXtAvW");
+// declare_id!("CAsieqooSrgVxhgWRwh21gyjq7Rmuhmo4qTW9XzXtAvW");
+declare_id!("FLoc9nBwGb2ayzVzb5GC9NttuPY3CxMhd4KDnApr79Ab");
 
 #[program]
 pub mod casier {
@@ -350,26 +351,139 @@ pub mod casier {
         }
         Ok(())
     }
-}
 
-#[error_code]
-pub enum ErrorCode {
-    #[msg("Invalid vault.")]
-    InvalidVault,
-    #[msg("Invalid before state.")]
-    InvalidBeforeState,
-    #[msg("Invalid before state.")]
-    InvalidBeforeState2,
-    #[msg("Invalid before state.")]
-    InvalidBeforeState3,
-    #[msg("Invalid before state.")]
-    InvalidBeforeState4,
-    #[msg("Trying to withdraw a mint not in locker..")]
-    WithdrawForMintNotInLocker,
-    #[msg("InvalidFinalState: FinalState.")]
-    InvalidFinalState,
-    #[msg("BurnNotRequired")]
-    BurnNotRequired,
-    #[msg("BurnRequired")]
-    BurnRequired,
+    pub fn withdraw_v2<'a, 'b, 'c, 'info>(
+        ctx: Context<'a, 'b, 'c, 'info, WithdrawV2>,
+        vault_bump: u8,
+        burn_bump: u8,
+        withdraw_amount: u64,
+        before_amount: u64,
+        final_amount: u64,
+    ) -> Result<()> {
+        let locker = &mut ctx.accounts.locker;
+        let mk = ctx.accounts.mint.key();
+        let mint_position_option = locker.mints.iter().position(|&lm| lm == mk);
+        if let None = mint_position_option {
+            return Err(error!(ErrorCode::WithdrawForMintNotInLocker));
+        }
+
+        if ctx.accounts.vault_ta.amount < withdraw_amount {
+            return Err(error!(ErrorCode::InsufficientFunds));
+        }
+
+        let mint_position = mint_position_option.unwrap();
+
+        let withdraw_type = get_withdraw_type(
+            locker,
+            ctx.accounts.user_ta_owner.key(),
+            final_amount,
+            ctx.accounts.vault_ta.amount,
+            withdraw_amount,
+        );
+
+        // Check if locker.amounts[i] is equal to before_amount to avoid duplicates
+        if locker.amounts[mint_position] != before_amount {
+            return Err(error!(ErrorCode::InvalidBeforeState));
+        }
+
+        if final_amount > 0 {
+            locker.amounts[mint_position] = final_amount;
+        } else {
+            locker.mints.remove(mint_position);
+            locker.amounts.remove(mint_position);
+        }
+
+        if *ctx.accounts.user_ta.to_account_info().owner != ctx.accounts.token_program.key() {
+            let cpi_program = ctx.accounts.associated_token_program.to_account_info();
+            let cpi_accounts = anchor_spl::associated_token::Create {
+                payer: ctx.accounts.user_ta_owner.to_account_info(),
+                associated_token: ctx.accounts.user_ta.to_account_info(),
+                authority: ctx.accounts.user_ta_owner.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+                token_program: ctx.accounts.token_program.to_account_info(),
+                rent: ctx.accounts.rent.to_account_info(),
+            };
+            let cpi_ctx = anchor_lang::context::CpiContext::new(cpi_program, cpi_accounts);
+            anchor_spl::associated_token::create(cpi_ctx)?;
+        }
+
+        anchor_spl::token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                anchor_spl::token::Transfer {
+                    from: ctx.accounts.vault_ta.to_account_info(),
+                    to: ctx.accounts.user_ta.to_account_info(),
+                    authority: ctx.accounts.vault_ta.to_account_info(),
+                },
+                &[&[
+                    ctx.accounts.mint.key().as_ref(),
+                    ctx.accounts.user_ta_owner.key().as_ref(),
+                    &[vault_bump],
+                ]],
+            ),
+            withdraw_amount.into(),
+        )?;
+
+        ctx.accounts.vault_ta.reload()?;
+
+        // check if withdraw_type is WithdrawType::OwnerBurn or WithdrawType::NonOwnerBurn
+        if let WithdrawType::OwnerBurn | WithdrawType::NonOwnerBurn = withdraw_type {
+            if *(ctx.accounts.burn_ta.to_account_info().owner) != ctx.accounts.token_program.key() {
+                let mc = &ctx.accounts.mint.clone();
+                let pk = &mc.key().clone();
+                let pkr = pk.as_ref();
+
+                let vault_account_seeds = &[pkr, &[burn_bump]];
+                let vault_account_signer = &vault_account_seeds[..];
+
+                // initialize nft vault account
+                spl_init_token_account(InitializeTokenAccountParams {
+                    account: ctx.accounts.burn_ta.to_account_info(),
+                    account_signer_seeds: vault_account_signer,
+                    mint: ctx.accounts.mint.to_account_info(),
+                    owner: ctx.accounts.burn_ta.to_account_info(),
+                    payer: ctx.accounts.user_ta_owner.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    token_program: ctx.accounts.token_program.to_account_info(),
+                    rent: ctx.accounts.rent.to_account_info(),
+                })?;
+            }
+            anchor_spl::token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    anchor_spl::token::Transfer {
+                        from: ctx.accounts.vault_ta.to_account_info(),
+                        to: ctx.accounts.burn_ta.to_account_info(),
+                        authority: ctx.accounts.vault_ta.to_account_info(),
+                    },
+                    &[&[
+                        ctx.accounts.mint.key().as_ref(),
+                        ctx.accounts.user_ta_owner.key().as_ref(),
+                        &[vault_bump],
+                    ]],
+                ),
+                ctx.accounts.vault_ta.amount - final_amount,
+            )?;
+            ctx.accounts.vault_ta.reload()?;
+        }
+
+        if ctx.accounts.vault_ta.amount == 0 {
+            anchor_spl::token::close_account(CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                anchor_spl::token::CloseAccount {
+                    account: ctx.accounts.vault_ta.to_account_info(),
+                    destination: ctx.accounts.user_ta_owner.to_account_info(),
+                    authority: ctx.accounts.vault_ta.to_account_info(),
+                },
+                &[&[
+                    ctx.accounts.mint.key().as_ref(),
+                    ctx.accounts.user_ta_owner.key().as_ref(),
+                    &[vault_bump],
+                ]],
+            ))?;
+        }
+
+        Ok(())
+    }
 }
