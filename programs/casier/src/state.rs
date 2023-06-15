@@ -105,6 +105,9 @@ pub struct WithdrawV2<'info> {
     pub vault_ta: Account<'info, TokenAccount>,
     /// CHECK:
     #[account(mut)]
+    pub vault_ta_owner: AccountInfo<'info>,
+    /// CHECK:
+    #[account(mut)]
     pub burn_ta: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,

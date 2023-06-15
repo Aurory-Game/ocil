@@ -498,18 +498,17 @@ describe("casier", () => {
         config: configPDA,
         locker,
         mint: mint,
-        
         admin: providerPk,
         userTa,
         userTaOwner: user.publicKey,
         vaultTa,
+        vaultTaOwner: user.publicKey,
         burnTa,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([user])
       .rpc();
 
     const burnTokenAccount = await provider.connection.getParsedAccountInfo(
@@ -566,18 +565,17 @@ describe("casier", () => {
         config: configPDA,
         locker,
         mint: mint,
-        
         admin: providerPk,
         userTa,
         userTaOwner: user.publicKey,
         vaultTa,
+        vaultTaOwner: user.publicKey,
         burnTa,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([user])
       .rpc();
 
     const burnTokenAccount = await provider.connection.getParsedAccountInfo(
@@ -616,6 +614,8 @@ describe("casier", () => {
       );
     
     const mint = mints[mintIndex];
+
+    const userFrom = users[userLockerFromIndex];
     
     const userDest = users[userDestIndex];
     const userTa = tokenAccounts[userDestIndex][mintIndex];
@@ -643,18 +643,17 @@ describe("casier", () => {
         config: configPDA,
         locker: lockerFrom,
         mint: mint,
-        
         admin: providerPk,
         userTa,
         userTaOwner: userDest.publicKey,
         vaultTa,
+        vaultTaOwner: userFrom.publicKey,
         burnTa,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([userDest])
       .rpc();
 
     const userTAAmount = (await getAccount(provider.connection, userTa)).amount.toString();
@@ -807,13 +806,13 @@ describe("casier", () => {
         userTa,
         userTaOwner: user.publicKey,
         vaultTa,
+        vaultTaOwner: user.publicKey,
         burnTa,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([user])
       .rpc();
 
     await afterChecks(mintIndex, vaultTa, locker, finalAmount, mint);

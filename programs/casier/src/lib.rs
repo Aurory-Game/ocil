@@ -473,12 +473,12 @@ pub mod casier {
                 ctx.accounts.token_program.to_account_info(),
                 anchor_spl::token::CloseAccount {
                     account: ctx.accounts.vault_ta.to_account_info(),
-                    destination: ctx.accounts.user_ta_owner.to_account_info(),
+                    destination: ctx.accounts.vault_ta_owner.to_account_info(),
                     authority: ctx.accounts.vault_ta.to_account_info(),
                 },
                 &[&[
                     ctx.accounts.mint.key().as_ref(),
-                    ctx.accounts.user_ta_owner.key().as_ref(),
+                    ctx.accounts.vault_ta_owner.key().as_ref(),
                     &[vault_bump],
                 ]],
             ))?;
