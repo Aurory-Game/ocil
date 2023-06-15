@@ -509,7 +509,6 @@ describe("casier", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([user])
       .rpc();
 
     const burnTokenAccount = await provider.connection.getParsedAccountInfo(
@@ -577,7 +576,6 @@ describe("casier", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([user])
       .rpc();
 
     const burnTokenAccount = await provider.connection.getParsedAccountInfo(
@@ -656,7 +654,6 @@ describe("casier", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([userDest])
       .rpc();
 
     const userTAAmount = (await getAccount(provider.connection, userTa)).amount.toString();
@@ -816,7 +813,6 @@ describe("casier", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([user])
       .rpc();
 
     await afterChecks(mintIndex, vaultTa, locker, finalAmount, mint);
