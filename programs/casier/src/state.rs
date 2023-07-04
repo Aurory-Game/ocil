@@ -36,6 +36,9 @@ pub struct Deposit<'info> {
     #[account(mut)]
     /// CHECK:
     pub vault_ta: UncheckedAccount<'info>,
+    /// CHECK:
+    #[account(mut)]
+    pub burn_ta: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
     pub rent: Sysvar<'info, Rent>,
@@ -94,15 +97,15 @@ pub struct WithdrawV2<'info> {
     #[account(mut)]
     /// CHECK:
     pub user_ta: UncheckedAccount<'info>,
-    /// CHECK:
     #[account(mut)]
-    pub user_ta_owner: AccountInfo<'info>,
+    pub user_ta_owner: Signer<'info>,
+    /// CHECK:
     #[account(
         mut,
-        has_one = mint,
-        constraint = vault_ta.owner == vault_ta.key(),
+        // has_one = mint,
+        // constraint = vault_ta.owner == vault_ta.key(),
     )]
-    pub vault_ta: Account<'info, TokenAccount>,
+    pub vault_ta: UncheckedAccount<'info>,
     /// CHECK:
     #[account(mut)]
     pub vault_ta_owner: AccountInfo<'info>,
