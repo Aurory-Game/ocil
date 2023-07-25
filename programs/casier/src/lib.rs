@@ -242,11 +242,11 @@ pub mod casier {
                 CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
                     anchor_spl::token::Transfer {
-                        from: ctx.accounts.vault_ta.to_account_info(),
+                        from: ctx.accounts.burn_ta.to_account_info(),
                         to: ctx.accounts.user_ta.to_account_info(),
-                        authority: ctx.accounts.vault_ta.to_account_info(),
+                        authority: ctx.accounts.burn_ta.to_account_info(),
                     },
-                    &[&[ctx.accounts.mint.key().as_ref(), &[vault_bump]]],
+                    &[&[ctx.accounts.mint.key().as_ref(), &[burn_bump]]],
                 ),
                 withdraw_amount.into(),
             )?;
