@@ -181,13 +181,9 @@ pub mod casier {
     ) -> Result<()> {
         let locker = &mut ctx.accounts.locker;
         let mk = ctx.accounts.mint.key();
-        let mint_position_option = locker.mints.iter().position(|&lm| lm == mk);
-
-        if let None = mint_position_option {
-            return Err(error!(ErrorCode::WithdrawForMintNotInLocker));
-        }
 
         let withdraw_from_burner_ta = ctx.accounts.vault_ta.key() == ctx.accounts.burn_ta.key();
+
         let mut sourceTa = match withdraw_from_burner_ta {
             true => Account::<'_, anchor_spl::token::TokenAccount>::try_from(
                 &ctx.accounts.burn_ta.to_account_info(),
@@ -200,7 +196,28 @@ pub mod casier {
             return Err(error!(ErrorCode::InsufficientFunds));
         }
 
-        let mint_position = mint_position_option.unwrap();
+        match locker.mints.iter().position(|&lm| lm == mk) {
+            Some(mint_position) => {
+                if locker.amounts[mint_position] != before_amount {
+                    return Err(error!(ErrorCode::InvalidBeforeState));
+                } else if final_amount > 0 {
+                    locker.amounts[mint_position] = final_amount;
+                } else {
+                    locker.mints.remove(mint_position);
+                    locker.amounts.remove(mint_position);
+                }
+            }
+            None => {
+                if before_amount != 0 {
+                    return Err(error!(ErrorCode::InvalidBeforeState2));
+                } else if !withdraw_from_burner_ta {
+                    return Err(error!(ErrorCode::WithdrawForMintNotInLocker));
+                } else if final_amount > 0 {
+                    locker.mints.push(mk);
+                    locker.amounts.push(final_amount);
+                }
+            }
+        }
 
         let withdraw_type = get_withdraw_type(
             locker,
@@ -209,18 +226,6 @@ pub mod casier {
             sourceTa.amount,
             withdraw_amount,
         );
-
-        // Check if locker.amounts[i] is equal to before_amount to avoid duplicates
-        if locker.amounts[mint_position] != before_amount {
-            return Err(error!(ErrorCode::InvalidBeforeState));
-        }
-
-        if final_amount > 0 {
-            locker.amounts[mint_position] = final_amount;
-        } else {
-            locker.mints.remove(mint_position);
-            locker.amounts.remove(mint_position);
-        }
 
         if *ctx.accounts.user_ta.to_account_info().owner != ctx.accounts.token_program.key() {
             let cpi_program = ctx.accounts.associated_token_program.to_account_info();
