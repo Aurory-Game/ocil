@@ -44,6 +44,61 @@ pub struct Deposit<'info> {
     pub rent: Sysvar<'info, Rent>,
 }
 
+pub struct PerformDeposit<'b, 'c, 'info> {
+    pub config: &'b mut Account<'info, Config>,
+    pub locker: &'c mut Account<'info, Locker>,
+    pub mint: &'c AccountInfo<'info>,
+    pub owner: &'b Signer<'info>,
+    pub admin: &'b Signer<'info>,
+    pub user_ta: &'c AccountInfo<'info>,
+    pub vault_ta: &'c AccountInfo<'info>,
+    pub burn_ta: &'c AccountInfo<'info>,
+    pub system_program: &'b Program<'info, System>,
+    pub token_program: &'b Program<'info, Token>,
+    pub rent: &'b Sysvar<'info, Rent>,
+}
+
+pub struct PerformWithdraw<'b, 'c, 'info> {
+    pub config: &'b mut Account<'info, Config>,
+    pub locker: &'c mut Account<'info, Locker>,
+    pub mint: &'c AccountInfo<'info>,
+    pub admin: &'b Signer<'info>,
+    pub user_ta_owner: &'b Signer<'info>,
+    pub user_ta: &'c AccountInfo<'info>,
+    pub vault_ta: &'c AccountInfo<'info>,
+    pub vault_ta_owner: &'c AccountInfo<'info>,
+    pub burn_ta: &'c AccountInfo<'info>,
+    pub system_program: &'b Program<'info, System>,
+    pub token_program: &'b Program<'info, Token>,
+    pub associated_token_program: &'b Program<'info, AssociatedToken>,
+    pub rent: &'b Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+pub struct DepositBatch<'info> {
+    #[account(
+        seeds = [ b"config".as_ref() ],
+        bump,
+        has_one = admin,
+        constraint = !config.is_frozen
+    )]
+    pub config: Account<'info, Config>,
+    #[account(
+        mut,
+        seeds = [ owner.key().as_ref() ],
+        bump,
+        has_one = owner,
+    )]
+    pub locker: Account<'info, Locker>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
     #[account(
@@ -112,6 +167,30 @@ pub struct WithdrawV2<'info> {
     /// CHECK:
     #[account(mut)]
     pub burn_ta: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawV2Batch<'info> {
+    #[account(
+        seeds = [ b"config".as_ref() ],
+        bump,
+        has_one = admin,
+        constraint = !config.is_frozen
+    )]
+    pub config: Account<'info, Config>,
+    #[account(mut)]
+    pub locker: Account<'info, Locker>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(mut)]
+    pub user_ta_owner: Signer<'info>,
+    /// CHECK:
+    #[account(mut)]
+    pub vault_ta_owner: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -246,6 +325,10 @@ pub enum ErrorCode {
     BurnRequired,
     #[msg("InsufficientFunds")]
     InsufficientFunds,
+    #[msg("Wrong remaining accounts size")]
+    WrongRemainingAccountsSize,
+    #[msg("Transfer failed.")]
+    TransferFail,
 }
 
 pub enum WithdrawType {

@@ -1,5 +1,5 @@
-import * as anchor from "@project-serum/anchor";
-import { Program } from "@project-serum/anchor";
+import * as anchor from "@coral-xyz/anchor";
+import { Program } from "@coral-xyz/anchor";
 //@ts-ignore
 import { Casier } from "../target/types/casier";
 import {
@@ -7,7 +7,12 @@ import {
   Keypair,
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
-  ParsedAccountData,
+  Connection,
+  ParsedTransactionWithMeta,
+  ComputeBudgetProgram,
+  TransactionMessage,
+  VersionedTransaction,
+  Signer,
 } from "@solana/web3.js";
 import {
   createMint,
@@ -15,10 +20,8 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccount,
-  closeAccount,
-  getAccount,
 } from "@solana/spl-token";
-import { assert, expect } from "chai";
+import { assert } from "chai";
 
 // Configure the client to use the local cluster.
 anchor.setProvider(anchor.AnchorProvider.env());
@@ -26,6 +29,10 @@ anchor.setProvider(anchor.AnchorProvider.env());
 const program = anchor.workspace.Casier as Program<Casier>;
 const provider = program.provider as anchor.AnchorProvider;
 const payer = (provider.wallet as anchor.Wallet).payer;
+const signer = {
+  publicKey: payer.publicKey,
+  secretKey: payer.secretKey,
+} as Signer;
 const providerPk = (program.provider as anchor.AnchorProvider).wallet.publicKey;
 
 const mints = [];
@@ -59,7 +66,7 @@ describe("casier", () => {
 
     // create mints
     await Promise.all(
-      [...Array(5).keys()]
+      [...Array(4).keys()]
         .map(() => Keypair.generate())
         .map((mint) => {
           mints.push(mint.publicKey);
@@ -80,7 +87,7 @@ describe("casier", () => {
         tokenAccounts.push([]);
         tokenAccountBumps.push([]);
         return Promise.all(
-          mints.slice(0, 1).map(async (mint) => {
+          mints.map(async (mint) => {
             const [address, bump] = await PublicKey.findProgramAddress(
               [
                 user.publicKey.toBuffer(),
@@ -104,22 +111,20 @@ describe("casier", () => {
 
     // mint tokens
     await Promise.all(
-      mints
-        .slice(0, 1)
-        .flatMap((mint, mintIndex) =>
-          users
-            .slice(0, 2)
-            .map((user, userIndex) =>
-              mintTo(
-                provider.connection,
-                payer,
-                mint,
-                tokenAccounts[userIndex][mintIndex],
-                payer.publicKey,
-                200
-              )
+      mints.flatMap((mint, mintIndex) =>
+        users
+          .slice(0, 2)
+          .map((user, userIndex) =>
+            mintTo(
+              provider.connection,
+              payer,
+              mint,
+              tokenAccounts[userIndex][mintIndex],
+              payer.publicKey,
+              300
             )
-        )
+          )
+      )
     );
 
     // init user lockers
@@ -203,6 +208,57 @@ describe("casier", () => {
   it("Deposit to closed vault TA: u: 0, m: 0, a: 100", async () => {
     const userIndex = 0;
     const mintIndex = 0;
+    const deposit_amount = new anchor.BN(100);
+
+    const { beforeAmount, finalAmount } = await getCheckAmounts(
+      "deposit",
+      userIndex,
+      mintIndex,
+      deposit_amount
+    );
+
+    const user = users[userIndex];
+    const mint = mints[mintIndex];
+    const userTa = tokenAccounts[userIndex][mintIndex];
+    const vaultTa = vaultTAs[userIndex][mintIndex];
+    const vaultBump = vaultTABumps[userIndex][mintIndex];
+    const locker = lockerPDAs[userIndex];
+
+    const should_go_in_burn_ta = false;
+    const [burnTa, burnBump] = await PublicKey.findProgramAddress(
+      [mint.toBuffer()],
+      program.programId
+    );
+    const tx = await program.methods
+      .deposit(
+        vaultBump,
+        deposit_amount,
+        beforeAmount,
+        burnBump,
+        should_go_in_burn_ta
+      )
+      .accounts({
+        config: configPDA,
+        locker,
+        mint: mint,
+        owner: user.publicKey,
+        admin: providerPk,
+        burnTa,
+        userTa,
+        vaultTa,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .signers([user, payer])
+      .rpc();
+
+    await afterChecks(mintIndex, vaultTa, locker, finalAmount, mint);
+  });
+
+  it("Deposit to closed vault TA second mint: u: 0, m: 1, a: 100", async () => {
+    const userIndex = 0;
+    const mintIndex = 1;
     const deposit_amount = new anchor.BN(100);
 
     const { beforeAmount, finalAmount } = await getCheckAmounts(
@@ -607,6 +663,213 @@ describe("casier", () => {
       .tokenAmount.uiAmount;
     assert.strictEqual(burnTaAmountAfter + 1, burnTaAmountBefore);
   });
+
+  it("Deposit batch", async () => {
+    const modifyComputeUnits = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 1400000,
+    });
+    const { blockhash } = await provider.connection.getLatestBlockhash();
+    const userIndex = 0;
+    const depositAmounts = mints.map((v, i) => new anchor.BN(i + 1));
+    const beforeAmounts = [];
+    const finalAmounts = [];
+    const remainingAccounts = [];
+    const burnBumps = [];
+    const vaultBumps = [];
+    const vaultFinalAmounts = [];
+
+    for (let index = 0; index < mints.length; index++) {
+      const mint = mints[index];
+      const { beforeAmount, finalAmount, vaultFinalAmount } =
+        await getCheckAmountsV2(
+          "deposit",
+          userIndex,
+          index,
+          depositAmounts[index]
+        );
+      vaultFinalAmounts.push(vaultFinalAmount);
+      beforeAmounts.push(beforeAmount);
+      finalAmounts.push(finalAmount);
+      const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
+        [mint.toBuffer()],
+        program.programId
+      );
+      burnBumps.push(burnBump);
+      remainingAccounts.push({
+        pubkey: mint,
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: tokenAccounts[userIndex][index], // user ta
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: vaultTAs[userIndex][index],
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: burnTa,
+        isWritable: true,
+        isSigner: false,
+      });
+      vaultBumps.push(vaultTABumps[userIndex][index]);
+    }
+
+    const user = users[userIndex];
+    const depositInstruction = await program.methods
+      .depositBatch(
+        depositAmounts,
+        beforeAmounts,
+        Buffer.from(vaultBumps),
+        Buffer.from(burnBumps),
+        false // set to 'true' if you want to go to burn TA, otherwise 'false'
+      )
+      .accounts({
+        config: configPDA,
+        locker: lockerPDAs[userIndex],
+        admin: providerPk,
+        owner: user.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .remainingAccounts(remainingAccounts)
+      .instruction();
+
+    const messageV0 = new TransactionMessage({
+      payerKey: payer.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [modifyComputeUnits, depositInstruction],
+    }).compileToV0Message();
+
+    const vtx = new VersionedTransaction(messageV0);
+    vtx.sign([signer, user]);
+    const tx = await provider.connection.sendRawTransaction(vtx.serialize());
+    const ptx = await getTransaction(tx, provider.connection);
+
+    for (let mintIndex = 0; mintIndex < mints.length; mintIndex++) {
+      await afterChecksV2(
+        mintIndex,
+        vaultTAs[userIndex][mintIndex],
+        lockerPDAs[userIndex],
+        finalAmounts[mintIndex],
+        mints[mintIndex],
+        vaultFinalAmounts[mintIndex]
+      );
+    }
+  });
+
+  it("Withdraw v2 batch", async () => {
+    const modifyComputeUnits = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 1400000,
+    });
+    const { blockhash } = await provider.connection.getLatestBlockhash();
+    const userIndex = 0;
+    const withdrawAmounts = mints.map((v, i) => new anchor.BN(i + 1));
+    const beforeAmounts = [];
+    const finalAmounts = [];
+    const remainingAccounts = [];
+    const burnBumps = [];
+    const vaultBumps = [];
+    const vaultFinalAmounts = [];
+    const withTransfer = true;
+
+    for (let index = 0; index < mints.length; index++) {
+      const mint = mints[index];
+      const { beforeAmount, finalAmount, vaultFinalAmount } =
+        await getCheckAmountsV2(
+          "withdraw",
+          userIndex,
+          index,
+          withdrawAmounts[index]
+        );
+      vaultFinalAmounts.push(vaultFinalAmount);
+      beforeAmounts.push(beforeAmount);
+      finalAmounts.push(finalAmount);
+      const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
+        [mint.toBuffer()],
+        program.programId
+      );
+      burnBumps.push(burnBump);
+      remainingAccounts.push({
+        pubkey: mint,
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: tokenAccounts[userIndex][index], // user ta
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: vaultTAs[userIndex][index],
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: users[userIndex].publicKey,
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: burnTa,
+        isWritable: true,
+        isSigner: false,
+      });
+      vaultBumps.push(vaultTABumps[userIndex][index]);
+    }
+
+    const vaultAccount = await provider.connection.getParsedAccountInfo(
+      vaultTAs[userIndex][0]
+    );
+
+    const user = users[userIndex];
+    const withdrawInstruction = await program.methods
+      .withdrawV2Batch(
+        withdrawAmounts,
+        beforeAmounts,
+        finalAmounts,
+        Buffer.from(vaultBumps),
+        Buffer.from(burnBumps)
+      )
+      .accounts({
+        config: configPDA,
+        locker: lockerPDAs[userIndex],
+        admin: providerPk,
+        userTaOwner: user.publicKey,
+        vaultTaOwner: user.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .remainingAccounts(remainingAccounts)
+      .instruction();
+
+    const messageV0 = new TransactionMessage({
+      payerKey: payer.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [modifyComputeUnits, withdrawInstruction],
+    }).compileToV0Message();
+    const vtx = new VersionedTransaction(messageV0);
+    vtx.sign([signer, user]);
+    const tx = await provider.connection.sendRawTransaction(vtx.serialize());
+    const ptx = await getTransaction(tx, provider.connection);
+
+    for (let mintIndex = 0; mintIndex < mints.length; mintIndex++) {
+      await afterChecksV2(
+        mintIndex,
+        vaultTAs[userIndex][mintIndex],
+        lockerPDAs[userIndex],
+        finalAmounts[mintIndex],
+        mints[mintIndex],
+        vaultFinalAmounts[mintIndex]
+      );
+    }
+  });
 });
 
 async function getCheckAmounts(
@@ -636,6 +899,52 @@ async function getCheckAmounts(
     ? beforeAmount.add(sign.mul(withdrawAmount))
     : beforeAmount;
   return { beforeAmount, finalAmount, lockerAccount, lockerMintIndex };
+}
+
+async function getCheckAmountsV2(
+  txType: "deposit" | "withdraw",
+  userIndex: number,
+  mintIndex: number,
+  amount: anchor.BN,
+  withTransfer: boolean = true
+): Promise<{
+  beforeAmount: anchor.BN;
+  finalAmount: anchor.BN;
+  lockerAccount: any;
+  lockerMintIndex: number;
+  vaultFinalAmount: anchor.BN;
+}> {
+  const lockerAccount = await program.account.locker.fetch(
+    lockerPDAs[userIndex]
+  );
+  const lockerMintIndex = lockerAccount.mints.findIndex(
+    (v) => v.toString() === mints[mintIndex].toString()
+  );
+  let beforeAmount =
+    lockerMintIndex !== -1
+      ? lockerAccount.amounts[lockerMintIndex]
+      : new anchor.BN(0);
+  const sign = txType == "deposit" ? new anchor.BN(1) : new anchor.BN(-1);
+  let finalAmount = withTransfer
+    ? beforeAmount.add(sign.mul(amount))
+    : beforeAmount;
+  const vaultAccount = await provider.connection.getParsedAccountInfo(
+    vaultTAs[userIndex][mintIndex]
+  );
+  const vaultAmount = (
+    vaultAccount?.value?.data as any
+  )?.parsed?.info?.tokenAmount?.uiAmount?.toString();
+  const vaultBeforeAmount = vaultAmount
+    ? new anchor.BN(vaultAmount)
+    : new anchor.BN(0);
+  const vaultFinalAmount = vaultBeforeAmount.add(sign.mul(amount));
+  return {
+    beforeAmount,
+    finalAmount,
+    lockerAccount,
+    lockerMintIndex,
+    vaultFinalAmount,
+  };
 }
 
 async function afterChecks(
@@ -671,3 +980,67 @@ async function afterChecks(
     assert.strictEqual(lockerMintIndex, -1);
   }
 }
+
+async function afterChecksV2(
+  mintIndex: number,
+  vaultTa: anchor.web3.PublicKey,
+  locker: anchor.web3.PublicKey,
+  finalAmount: anchor.BN,
+  mint: string,
+  vaultFinalAmount: anchor.BN
+): Promise<void> {
+  const vaultAccount = await provider.connection.getParsedAccountInfo(vaultTa);
+  const lockerAccount = await program.account.locker.fetch(locker);
+  const lockerMintIndex = lockerAccount.mints.findIndex(
+    (v) => v.toString() === mints[mintIndex].toString()
+  );
+
+  if (finalAmount.toString() !== "0") {
+    assert.strictEqual(
+      lockerAccount.amounts[lockerMintIndex].toString(),
+      finalAmount.toString()
+    );
+    assert.strictEqual(
+      lockerAccount.mints[lockerMintIndex].toString(),
+      mint.toString()
+    );
+  } else {
+    assert.isNull(vaultAccount.value);
+    assert.strictEqual(lockerMintIndex, -1);
+  }
+  if (vaultFinalAmount.toString() !== "0") {
+    assert.strictEqual(
+      (
+        vaultAccount.value.data as any
+      ).parsed.info.tokenAmount.uiAmount.toString(),
+      vaultFinalAmount.toString()
+    );
+  } else {
+    assert.isNull(vaultAccount.value);
+  }
+}
+
+async function getTransaction(
+  signature: string,
+  connection: Connection,
+  log: boolean = false
+): Promise<ParsedTransactionWithMeta> {
+  let ptx = null;
+  while (ptx === null) {
+    ptx = await connection.getParsedTransaction(signature, {
+      maxSupportedTransactionVersion: 0,
+      commitment: "confirmed",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  if (log) {
+    ptx?.meta?.logMessages
+      ? ptx?.meta?.logMessages?.forEach((log) => {
+          console.log(log);
+        })
+      : console.log(ptx);
+  }
+  return ptx;
+}
+
+async function sendTxAndCheck(tx: VersionedTransaction) {}
