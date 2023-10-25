@@ -10,9 +10,9 @@ import {
   Connection,
   ParsedTransactionWithMeta,
   ComputeBudgetProgram,
-  TransactionMessage,
-  VersionedTransaction,
   Signer,
+  AddressLookupTableProgram,
+  AddressLookupTableAccount,
 } from "@solana/web3.js";
 import {
   createMint,
@@ -22,6 +22,7 @@ import {
   createAssociatedTokenAccount,
 } from "@solana/spl-token";
 import { assert } from "chai";
+import { TxSender } from "./utils";
 
 // Configure the client to use the local cluster.
 anchor.setProvider(anchor.AnchorProvider.env());
@@ -34,7 +35,7 @@ const signer = {
   secretKey: payer.secretKey,
 } as Signer;
 const providerPk = (program.provider as anchor.AnchorProvider).wallet.publicKey;
-
+const txSender = new TxSender(provider.connection);
 const mints = [];
 const users = [...Array(3).keys()].map(() => Keypair.generate());
 
@@ -48,6 +49,7 @@ const tokenAccountBumps: number[][] = [];
 const vaultTAs: PublicKey[][] = [];
 // 2D array: user index, token account bumps by mint index
 const vaultTABumps: number[][] = [];
+let lookupTable: AddressLookupTableAccount;
 
 describe("casier", () => {
   it("Prepare", async () => {
@@ -66,7 +68,7 @@ describe("casier", () => {
 
     // create mints
     await Promise.all(
-      [...Array(4).keys()]
+      [...Array(5).keys()]
         .map(() => Keypair.generate())
         .map((mint) => {
           mints.push(mint.publicKey);
@@ -156,6 +158,41 @@ describe("casier", () => {
         })
       )
     );
+    const slot = await provider.connection.getSlot("finalized");
+    const [createLookupTableInst, lookupTableAddress] =
+      AddressLookupTableProgram.createLookupTable({
+        authority: payer.publicKey,
+        payer: payer.publicKey,
+        recentSlot: slot,
+      });
+    const extendTableInst = AddressLookupTableProgram.extendLookupTable({
+      /** Address lookup table account to extend. */
+      lookupTable: lookupTableAddress,
+      /** Account which is the current authority. */
+      authority: payer.publicKey,
+      /** Account that will fund the table reallocation.
+       * Not required if the reallocation has already been funded. */
+      payer: payer.publicKey,
+      /** List of Public Keys to be added to the lookup table. */
+      addresses: [
+        configPDA,
+        providerPk,
+        SystemProgram.programId,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        SYSVAR_RENT_PUBKEY,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      ],
+    });
+
+    await txSender.createAndSendV0Tx({
+      txInstructions: [createLookupTableInst, extendTableInst],
+      payer: payer.publicKey,
+      signers: [payer],
+    });
+    lookupTable = (
+      await provider.connection.getAddressLookupTable(lookupTableAddress)
+    ).value;
   });
 
   it("Is initialized!", async () => {
@@ -739,16 +776,12 @@ describe("casier", () => {
       .remainingAccounts(remainingAccounts)
       .instruction();
 
-    const messageV0 = new TransactionMessage({
-      payerKey: payer.publicKey,
-      recentBlockhash: blockhash,
-      instructions: [modifyComputeUnits, depositInstruction],
-    }).compileToV0Message();
-
-    const vtx = new VersionedTransaction(messageV0);
-    vtx.sign([signer, user]);
-    const tx = await provider.connection.sendRawTransaction(vtx.serialize());
-    const ptx = await getTransaction(tx, provider.connection);
+    await txSender.createAndSendV0Tx({
+      txInstructions: [modifyComputeUnits, depositInstruction],
+      payer: payer.publicKey,
+      signers: [signer, user],
+      lookupTableAccount: lookupTable,
+    });
 
     for (let mintIndex = 0; mintIndex < mints.length; mintIndex++) {
       await afterChecksV2(
@@ -849,15 +882,12 @@ describe("casier", () => {
       .remainingAccounts(remainingAccounts)
       .instruction();
 
-    const messageV0 = new TransactionMessage({
-      payerKey: payer.publicKey,
-      recentBlockhash: blockhash,
-      instructions: [modifyComputeUnits, withdrawInstruction],
-    }).compileToV0Message();
-    const vtx = new VersionedTransaction(messageV0);
-    vtx.sign([signer, user]);
-    const tx = await provider.connection.sendRawTransaction(vtx.serialize());
-    const ptx = await getTransaction(tx, provider.connection);
+    await txSender.createAndSendV0Tx({
+      txInstructions: [modifyComputeUnits, withdrawInstruction],
+      payer: payer.publicKey,
+      signers: [signer, user],
+      lookupTableAccount: lookupTable,
+    });
 
     for (let mintIndex = 0; mintIndex < mints.length; mintIndex++) {
       await afterChecksV2(
@@ -1042,5 +1072,3 @@ async function getTransaction(
   }
   return ptx;
 }
-
-async function sendTxAndCheck(tx: VersionedTransaction) {}
