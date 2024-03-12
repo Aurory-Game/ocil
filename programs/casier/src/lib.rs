@@ -78,10 +78,14 @@ pub mod casier {
         before_amounts: Vec<u64>,
         vault_bumps: Vec<u8>,
         burn_bumps: Vec<u8>,
-        should_go_in_burn_ta: bool
+        should_go_in_burn_ta: bool,
+        pnft_count: u8
     ) -> Result<()> {
-        const RA_CHUNK_SIZE: usize = 8;
-        if ctx.remaining_accounts.len() % RA_CHUNK_SIZE != 0 {
+        const PNFT_CHUNK_SIZE: u8 = 8;
+        const NORMAL_CHUNK_SIZE: u8 = 4;
+        let mut pnft_ra_length =
+            pnft_count * PNFT_CHUNK_SIZE + (if pnft_count > 0 { 3 } else { 0 });
+        if ((ctx.remaining_accounts.len() as u8) - pnft_ra_length) % NORMAL_CHUNK_SIZE != 0 {
             return Err(error!(ErrorCode::WrongRemainingAccountsSize));
         }
         let accounts: &'b mut DepositBatch<'info> = ctx.accounts;
@@ -91,17 +95,18 @@ pub mod casier {
         let admin: &'b Signer<'info> = &accounts.admin;
         let system_program: &'b Program<'info, System> = &accounts.system_program;
         let token_program: &'b Program<'info, Token> = &accounts.token_program;
-        let token_metadata_program = &accounts.token_metadata_program;
-        let spl_token_program_info = &accounts.spl_token_program_info;
-        let spl_ata_program_info = &accounts.spl_ata_program_info;
-        let instructions = &accounts.instructions;
         let rent: &'b Sysvar<'info, Rent> = &accounts.rent;
         let remaining_accounts: &'c [AccountInfo<'info>] = ctx.remaining_accounts;
-        let mut index = 0;
+        let token_metadata_program = &remaining_accounts[0];
+        let spl_ata_program_info = &remaining_accounts[1];
+        let instructions = &remaining_accounts[2];
+        msg!("pnft_ra_length {:?}", pnft_ra_length);
+        let mut index = if pnft_count > 0 { 3 } else { 0 };
+        let mut mint_index = 0;
         while index < remaining_accounts.len() {
-            let mint_index = index / RA_CHUNK_SIZE;
-
-            let pd = PerformDepositV2 {
+            msg!("index {:?}", index);
+            msg!("mint_index {:?}", mint_index);
+            let mut pd = PerformDepositV2 {
                 config: config,
                 locker: locker,
                 mint: &remaining_accounts[index],
@@ -110,19 +115,23 @@ pub mod casier {
                 user_ta: &remaining_accounts[index + 1],
                 vault_ta: &remaining_accounts[index + 2],
                 burn_ta: &remaining_accounts[index + 3],
-                // change
-                metadata: Some(&remaining_accounts[index + 4]),
-                token_record: Some(&remaining_accounts[index + 5]),
-                destination_token_record: Some(&remaining_accounts[index + 6]),
-                edition: Some(&remaining_accounts[index + 7]),
+                metadata: None,
+                token_record: None,
+                destination_token_record: None,
+                edition: None,
                 token_metadata_program: token_metadata_program,
                 instructions: instructions,
-                spl_token_program_info: spl_token_program_info,
                 spl_ata_program_info: spl_ata_program_info,
                 system_program: system_program,
                 token_program: token_program,
                 rent: rent,
             };
+            if (index as u8) < pnft_ra_length {
+                pd.metadata = Some(&remaining_accounts[index + 4]);
+                pd.token_record = Some(&remaining_accounts[index + 5]);
+                pd.destination_token_record = Some(&remaining_accounts[index + 6]);
+                pd.edition = Some(&remaining_accounts[index + 7]);
+            }
             perform_depositV2(
                 pd,
                 vault_bumps[mint_index],
@@ -131,8 +140,12 @@ pub mod casier {
                 burn_bumps[mint_index],
                 should_go_in_burn_ta
             )?;
-
-            index += RA_CHUNK_SIZE;
+            index += if pnft_ra_length == 0 || (index as u8) > pnft_ra_length {
+                NORMAL_CHUNK_SIZE as usize
+            } else {
+                PNFT_CHUNK_SIZE as usize
+            };
+            mint_index += 1;
         }
         Ok(())
     }

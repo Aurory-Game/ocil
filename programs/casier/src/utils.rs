@@ -411,7 +411,7 @@ pub fn perform_depositV2<'b, 'c, 'info>(
             .payer(pd.owner)
             .system_program(pd.system_program)
             .sysvar_instructions(pd.instructions)
-            .spl_token_program(pd.spl_token_program_info)
+            .spl_token_program(pd.token_program)
             .spl_ata_program(pd.spl_ata_program_info)
             .amount(deposit_amount)
             .invoke();

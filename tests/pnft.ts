@@ -165,7 +165,25 @@ describe("pnft", function () {
     const vaultBumps: Array<number> = [];
     const burnBumps: Array<number> = [];
     const userPk = this.adminPk;
+    const pnftCount = 1;
     for (let index = 0; index < mints.length; index++) {
+      if (index < pnftCount) {
+        remainingAccounts.push({
+          pubkey: toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
+          isWritable: false,
+          isSigner: false,
+        });
+        remainingAccounts.push({
+          pubkey: ASSOCIATED_TOKEN_PROGRAM_ID,
+          isWritable: false,
+          isSigner: false,
+        });
+        remainingAccounts.push({
+          pubkey: SYSVAR_INSTRUCTIONS_PUBKEY,
+          isWritable: false,
+          isSigner: false,
+        });
+      }
       const mint = mints[index];
       const [vaultTa, vaultBump] = PublicKey.findProgramAddressSync(
         [mint.toBuffer(), userPk.toBuffer()],
@@ -242,7 +260,8 @@ describe("pnft", function () {
         beforeAmounts,
         Buffer.from(vaultBumps),
         Buffer.from(burnBumps),
-        false // set to 'true' if you want to go to burn TA, otherwise 'false'
+        false, // set to 'true' if you want to go to burn TA, otherwise 'false'
+        pnftCount
       )
       .accounts({
         config: this.configPDA,
@@ -250,10 +269,7 @@ describe("pnft", function () {
         admin: userPk,
         owner: userPk,
         systemProgram: SystemProgram.programId,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        tokenMetadataProgram: toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
-        splTokenProgramInfo: TOKEN_PROGRAM_ID,
-        splAtaProgramInfo: ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .remainingAccounts(remainingAccounts)

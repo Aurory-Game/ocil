@@ -762,7 +762,8 @@ describe("casier", () => {
         beforeAmounts,
         Buffer.from(vaultBumps),
         Buffer.from(burnBumps),
-        false // set to 'true' if you want to go to burn TA, otherwise 'false'
+        false, // set to 'true' if you want to go to burn TA, otherwise 'false'
+        0 // pnft count
       )
       .accounts({
         config: configPDA,

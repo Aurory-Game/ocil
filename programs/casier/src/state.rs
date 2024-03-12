@@ -65,7 +65,6 @@ pub struct PerformDepositV2<'b, 'c, 'info> {
     pub edition: Option<&'c AccountInfo<'info>>,
     pub token_metadata_program: &'c AccountInfo<'info>,
     pub instructions: &'c AccountInfo<'info>,
-    pub spl_token_program_info: &'c AccountInfo<'info>,
     pub spl_ata_program_info: &'c AccountInfo<'info>,
     pub system_program: &'b Program<'info, System>,
     pub token_program: &'b Program<'info, Token>,
@@ -103,14 +102,6 @@ pub struct DepositBatch<'info> {
     pub owner: Signer<'info>,
     #[account(mut)]
     pub admin: Signer<'info>,
-    /// CHECK: account checked in CPI
-    pub token_metadata_program: AccountInfo<'info>,
-    /// CHECK: account checked in CPI
-    pub spl_token_program_info: AccountInfo<'info>,
-    /// CHECK: account checked in CPI
-    pub spl_ata_program_info: AccountInfo<'info>,
-    /// CHECK: account checked in CPI
-    pub instructions: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
     pub rent: Sysvar<'info, Rent>,
