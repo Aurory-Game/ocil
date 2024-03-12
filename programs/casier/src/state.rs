@@ -1,19 +1,11 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    associated_token::AssociatedToken,
-    token::{Mint, Token, TokenAccount},
-};
+use anchor_spl::{ associated_token::AssociatedToken, token::{ Mint, Token, TokenAccount } };
 #[derive(Accounts)]
 pub struct Initialize {}
 
 #[derive(Accounts)]
 pub struct Deposit<'info> {
-    #[account(
-        seeds = [ b"config".as_ref() ],
-        bump,
-        has_one = admin,
-        constraint = !config.is_frozen
-    )]
+    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
     pub config: Account<'info, Config>,
     #[account(
         mut,
@@ -58,6 +50,28 @@ pub struct PerformDeposit<'b, 'c, 'info> {
     pub rent: &'b Sysvar<'info, Rent>,
 }
 
+pub struct PerformDepositV2<'b, 'c, 'info> {
+    pub config: &'b mut Account<'info, Config>,
+    pub locker: &'c mut Account<'info, Locker>,
+    pub mint: &'c AccountInfo<'info>,
+    pub owner: &'b Signer<'info>,
+    pub admin: &'b Signer<'info>,
+    pub user_ta: &'c AccountInfo<'info>,
+    pub vault_ta: &'c AccountInfo<'info>,
+    pub burn_ta: &'c AccountInfo<'info>,
+    pub metadata: Option<&'c AccountInfo<'info>>,
+    pub token_record: Option<&'c AccountInfo<'info>>,
+    pub destination_token_record: Option<&'c AccountInfo<'info>>,
+    pub edition: Option<&'c AccountInfo<'info>>,
+    pub token_metadata_program: &'c AccountInfo<'info>,
+    pub instructions: &'c AccountInfo<'info>,
+    pub spl_token_program_info: &'c AccountInfo<'info>,
+    pub spl_ata_program_info: &'c AccountInfo<'info>,
+    pub system_program: &'b Program<'info, System>,
+    pub token_program: &'b Program<'info, Token>,
+    pub rent: &'b Sysvar<'info, Rent>,
+}
+
 pub struct PerformWithdraw<'b, 'c, 'info> {
     pub config: &'b mut Account<'info, Config>,
     pub locker: &'c mut Account<'info, Locker>,
@@ -76,12 +90,7 @@ pub struct PerformWithdraw<'b, 'c, 'info> {
 
 #[derive(Accounts)]
 pub struct DepositBatch<'info> {
-    #[account(
-        seeds = [ b"config".as_ref() ],
-        bump,
-        has_one = admin,
-        constraint = !config.is_frozen
-    )]
+    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
     pub config: Account<'info, Config>,
     #[account(
         mut,
@@ -94,6 +103,14 @@ pub struct DepositBatch<'info> {
     pub owner: Signer<'info>,
     #[account(mut)]
     pub admin: Signer<'info>,
+    /// CHECK: account checked in CPI
+    pub token_metadata_program: AccountInfo<'info>,
+    /// CHECK: account checked in CPI
+    pub spl_token_program_info: AccountInfo<'info>,
+    /// CHECK: account checked in CPI
+    pub spl_ata_program_info: AccountInfo<'info>,
+    /// CHECK: account checked in CPI
+    pub instructions: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
     pub rent: Sysvar<'info, Rent>,
@@ -101,12 +118,7 @@ pub struct DepositBatch<'info> {
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
-    #[account(
-        seeds = [ b"config".as_ref() ],
-        bump,
-        has_one = admin,
-        constraint = !config.is_frozen
-    )]
+    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
     pub config: Account<'info, Config>,
     #[account(
         mut,
@@ -137,12 +149,7 @@ pub struct Withdraw<'info> {
 
 #[derive(Accounts)]
 pub struct WithdrawV2<'info> {
-    #[account(
-        seeds = [ b"config".as_ref() ],
-        bump,
-        has_one = admin,
-        constraint = !config.is_frozen
-    )]
+    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
     pub config: Account<'info, Config>,
     #[account(mut)]
     pub locker: Account<'info, Locker>,
@@ -175,12 +182,7 @@ pub struct WithdrawV2<'info> {
 
 #[derive(Accounts)]
 pub struct WithdrawV2Batch<'info> {
-    #[account(
-        seeds = [ b"config".as_ref() ],
-        bump,
-        has_one = admin,
-        constraint = !config.is_frozen
-    )]
+    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
     pub config: Account<'info, Config>,
     #[account(mut)]
     pub locker: Account<'info, Locker>,
@@ -199,12 +201,7 @@ pub struct WithdrawV2Batch<'info> {
 
 #[derive(Accounts)]
 pub struct WithdrawAndBurn<'info> {
-    #[account(
-        seeds = [ b"config".as_ref() ],
-        bump,
-        has_one = admin,
-        constraint = !config.is_frozen
-    )]
+    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
     pub config: Account<'info, Config>,
     #[account(
         mut,
@@ -238,13 +235,7 @@ pub struct WithdrawAndBurn<'info> {
 
 #[derive(Accounts)]
 pub struct InitConfig<'info> {
-    #[account(
-        init,
-        seeds = [ b"config".as_ref() ],
-        bump,
-        payer = fee_payer,
-        space = 8 + 32 + 1
-    )]
+    #[account(init, seeds = [b"config".as_ref()], bump, payer = fee_payer, space = 8 + 32 + 1)]
     pub config: Account<'info, Config>,
     #[account(mut)]
     pub fee_payer: Signer<'info>,
@@ -255,13 +246,7 @@ pub struct InitConfig<'info> {
 #[derive(Accounts)]
 #[instruction(_space: u64)]
 pub struct InitLocker<'info> {
-    #[account(
-        init,
-        seeds = [ owner.key().as_ref() ],
-        bump,
-        payer = owner,
-        space = _space as usize
-    )]
+    #[account(init, seeds = [owner.key().as_ref()], bump, payer = owner, space = _space as usize)]
     pub locker: Account<'info, Locker>,
     #[account(mut)]
     pub owner: Signer<'info>,
