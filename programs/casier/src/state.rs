@@ -87,6 +87,28 @@ pub struct PerformWithdraw<'b, 'c, 'info> {
     pub rent: &'b Sysvar<'info, Rent>,
 }
 
+pub struct PerformWithdrawV2<'b, 'c, 'info> {
+    pub config: &'b mut Account<'info, Config>,
+    pub locker: &'c mut Account<'info, Locker>,
+    pub mint: &'c AccountInfo<'info>,
+    pub admin: &'b Signer<'info>,
+    pub user_ta_owner: &'b Signer<'info>,
+    pub user_ta: &'c AccountInfo<'info>,
+    pub vault_ta: &'c AccountInfo<'info>,
+    pub vault_ta_owner: &'c AccountInfo<'info>,
+    pub burn_ta: &'c AccountInfo<'info>,
+    pub metadata: Option<&'c AccountInfo<'info>>,
+    pub token_record: Option<&'c AccountInfo<'info>>,
+    pub destination_token_record: Option<&'c AccountInfo<'info>>,
+    pub edition: Option<&'c AccountInfo<'info>>,
+    pub token_metadata_program: &'c AccountInfo<'info>,
+    pub instructions: &'c AccountInfo<'info>,
+    pub system_program: &'b Program<'info, System>,
+    pub token_program: &'b Program<'info, Token>,
+    pub associated_token_program: &'b Program<'info, AssociatedToken>,
+    pub rent: &'b Sysvar<'info, Rent>,
+}
+
 #[derive(Accounts)]
 pub struct DepositBatch<'info> {
     #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]

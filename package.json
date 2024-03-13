@@ -2,12 +2,17 @@
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
-    "sp": "ts-node -r dotenv/config $1"
+    "sp": "ts-node -r dotenv/config $1",
+    "test": "anchor test"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0"
   },
   "devDependencies": {
+    "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
+    "@metaplex-foundation/umi": "^0.9.1",
+    "@metaplex-foundation/umi-bundle-defaults": "^0.9.1",
+    "@metaplex-foundation/umi-web3js-adapters": "^0.9.1",
     "@solana/spl-token": "^0.3.8",
     "@solana/web3.js": "^1.87.1",
     "@types/bn.js": "^5.1.0",

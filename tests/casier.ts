@@ -860,6 +860,7 @@ describe("casier", () => {
       vaultTAs[userIndex][0]
     );
 
+    const pnftCount = 0;
     const user = users[userIndex];
     const withdrawInstruction = await program.methods
       .withdrawV2Batch(
@@ -867,7 +868,8 @@ describe("casier", () => {
         beforeAmounts,
         finalAmounts,
         Buffer.from(vaultBumps),
-        Buffer.from(burnBumps)
+        Buffer.from(burnBumps),
+        pnftCount
       )
       .accounts({
         config: configPDA,

@@ -182,12 +182,16 @@ pub mod casier {
         before_amounts: Vec<u64>,
         final_amounts: Vec<u64>,
         vault_bumps: Vec<u8>,
-        burn_bumps: Vec<u8>
+        burn_bumps: Vec<u8>,
+        pnft_count: u8
     ) -> Result<()> {
-        if ctx.remaining_accounts.len() % 5 != 0 {
+        const PNFT_CHUNK_SIZE: u8 = 9;
+        const NORMAL_CHUNK_SIZE: u8 = 5;
+        let mut pnft_ra_length =
+            pnft_count * PNFT_CHUNK_SIZE + (if pnft_count > 0 { 2 } else { 0 });
+        if ((ctx.remaining_accounts.len() as u8) - pnft_ra_length) % NORMAL_CHUNK_SIZE != 0 {
             return Err(error!(ErrorCode::WrongRemainingAccountsSize));
         }
-
         let accounts: &'b mut WithdrawV2Batch<'info> = ctx.accounts;
         let config: &'b mut Account<'info, Config> = &mut accounts.config;
         let locker: &'b mut Account<'info, Locker> = &mut accounts.locker;
@@ -201,11 +205,12 @@ pub mod casier {
         > = &accounts.associated_token_program;
         let rent: &'b Sysvar<'info, Rent> = &accounts.rent;
         let remaining_accounts: &'c [AccountInfo<'info>] = ctx.remaining_accounts;
-        let mut index = 0;
+        let token_metadata_program = &remaining_accounts[0];
+        let instructions = &remaining_accounts[1];
+        let mut index = if pnft_count > 0 { 2 } else { 0 };
+        let mut mint_index = 0;
         while index < remaining_accounts.len() {
-            let mint_index = index / 5;
-
-            let pd = PerformWithdraw {
+            let mut pd = PerformWithdrawV2 {
                 config: config,
                 locker: locker,
                 mint: &remaining_accounts[index],
@@ -215,12 +220,24 @@ pub mod casier {
                 vault_ta: &remaining_accounts[index + 2],
                 vault_ta_owner: &remaining_accounts[index + 3],
                 burn_ta: &remaining_accounts[index + 4],
+                metadata: None,
+                token_record: None,
+                destination_token_record: None,
+                edition: None,
+                token_metadata_program: token_metadata_program,
+                instructions: instructions,
                 system_program: system_program,
                 token_program: token_program,
                 associated_token_program: associated_token_program,
                 rent: rent,
             };
-            perform_withdraw(
+            if (index as u8) < pnft_ra_length {
+                pd.metadata = Some(&remaining_accounts[index + 5]);
+                pd.token_record = Some(&remaining_accounts[index + 6]);
+                pd.destination_token_record = Some(&remaining_accounts[index + 7]);
+                pd.edition = Some(&remaining_accounts[index + 8]);
+            }
+            perform_withdrawV2(
                 pd,
                 withdraw_amounts[mint_index],
                 before_amounts[mint_index],
@@ -229,7 +246,12 @@ pub mod casier {
                 burn_bumps[mint_index]
             )?;
 
-            index += 5;
+            index += if pnft_ra_length == 0 || (index as u8) > pnft_ra_length {
+                NORMAL_CHUNK_SIZE as usize
+            } else {
+                PNFT_CHUNK_SIZE as usize
+            };
+            mint_index += 1;
         }
         Ok(())
     }

@@ -414,7 +414,7 @@ pub fn perform_depositV2<'b, 'c, 'info>(
             .spl_token_program(pd.token_program)
             .spl_ata_program(pd.spl_ata_program_info)
             .amount(deposit_amount)
-            .invoke();
+            .invoke()?;
     } else {
         spl_token_transfer(TokenTransferParams {
             source: pd.user_ta.to_account_info(),
@@ -551,6 +551,184 @@ pub fn perform_withdraw<'b, 'c, 'info>(
             ),
             withdraw_amount.into()
         )?;
+    }
+
+    // check if withdraw_type is WithdrawType::OwnerBurn or WithdrawType::NonOwnerBurn
+    if
+        matches!(withdraw_type, WithdrawType::OwnerBurn | WithdrawType::NonOwnerBurn) &&
+        pd.vault_ta.key() != pd.burn_ta.key()
+    {
+        if *pd.burn_ta.to_account_info().owner != pd.token_program.key() {
+            let mc = &pd.mint.clone();
+            let pk = &mc.key().clone();
+            let pkr = pk.as_ref();
+
+            let vault_account_seeds = &[pkr, &[burn_bump]];
+            let vault_account_signer = &vault_account_seeds[..];
+
+            // initialize nft vault account
+            spl_init_token_account(InitializeTokenAccountParams {
+                account: pd.burn_ta.to_account_info(),
+                account_signer_seeds: vault_account_signer,
+                mint: pd.mint.to_account_info(),
+                owner: pd.burn_ta.to_account_info(),
+                payer: pd.user_ta_owner.to_account_info(),
+                system_program: pd.system_program.to_account_info(),
+                token_program: pd.token_program.to_account_info(),
+                rent: pd.rent.to_account_info(),
+            })?;
+        }
+        anchor_spl::token::transfer(
+            CpiContext::new_with_signer(
+                pd.token_program.to_account_info(),
+                anchor_spl::token::Transfer {
+                    from: pd.vault_ta.to_account_info(),
+                    to: pd.burn_ta.to_account_info(),
+                    authority: pd.vault_ta.to_account_info(),
+                },
+                &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+            ),
+            sourceTa.amount - final_amount
+        )?;
+    }
+
+    // sourceTa.reload()?;
+    let mut sourceTa = match withdraw_from_burner_ta {
+        true => get_token_account(pd.burn_ta)?,
+        false => get_token_account(pd.vault_ta)?,
+    };
+    if sourceTa.amount == 0 && !withdraw_from_burner_ta {
+        anchor_spl::token::close_account(
+            CpiContext::new_with_signer(
+                pd.token_program.to_account_info(),
+                anchor_spl::token::CloseAccount {
+                    account: pd.vault_ta.to_account_info(),
+                    destination: pd.vault_ta_owner.to_account_info(),
+                    authority: pd.vault_ta.to_account_info(),
+                },
+                &[&[pd.mint.key().as_ref(), pd.vault_ta_owner.key().as_ref(), &[vault_bump]]]
+            )
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn perform_withdrawV2<'b, 'c, 'info>(
+    mut pd: PerformWithdrawV2<'b, 'c, 'info>,
+    withdraw_amount: u64,
+    before_amount: u64,
+    final_amount: u64,
+    vault_bump: u8,
+    burn_bump: u8
+) -> Result<()> {
+    let locker = &mut pd.locker;
+    let mk = pd.mint.key();
+
+    let withdraw_from_burner_ta = pd.vault_ta.key() == pd.burn_ta.key();
+
+    let mut sourceTa = match withdraw_from_burner_ta {
+        true => get_token_account(pd.burn_ta)?,
+        false => get_token_account(pd.vault_ta)?,
+    };
+    if sourceTa.amount < withdraw_amount {
+        return Err(error!(ErrorCode::InsufficientFunds));
+    }
+
+    match locker.mints.iter().position(|&lm| lm == mk) {
+        Some(mint_position) => {
+            if locker.amounts[mint_position] != before_amount {
+                return Err(error!(ErrorCode::InvalidBeforeState));
+            } else if final_amount > 0 {
+                locker.amounts[mint_position] = final_amount;
+            } else {
+                locker.mints.remove(mint_position);
+                locker.amounts.remove(mint_position);
+            }
+        }
+        None => {
+            if before_amount != 0 {
+                return Err(error!(ErrorCode::InvalidBeforeState2));
+            } else if !withdraw_from_burner_ta {
+                return Err(error!(ErrorCode::WithdrawForMintNotInLocker));
+            } else if final_amount > 0 {
+                locker.mints.push(mk);
+                locker.amounts.push(final_amount);
+            }
+        }
+    }
+
+    let withdraw_type = get_withdraw_type(
+        locker,
+        pd.user_ta_owner.key(),
+        final_amount,
+        sourceTa.amount,
+        withdraw_amount
+    );
+
+    if *pd.user_ta.to_account_info().owner != pd.token_program.key() {
+        let cpi_program = pd.associated_token_program.to_account_info();
+        let cpi_accounts = anchor_spl::associated_token::Create {
+            payer: pd.user_ta_owner.to_account_info(),
+            associated_token: pd.user_ta.to_account_info(),
+            authority: pd.user_ta_owner.to_account_info(),
+            mint: pd.mint.to_account_info(),
+            system_program: pd.system_program.to_account_info(),
+            token_program: pd.token_program.to_account_info(),
+        };
+        let cpi_ctx = anchor_lang::context::CpiContext::new(cpi_program, cpi_accounts);
+        anchor_spl::associated_token::create(cpi_ctx)?;
+    }
+
+    if withdraw_from_burner_ta {
+        anchor_spl::token::transfer(
+            CpiContext::new_with_signer(
+                pd.token_program.to_account_info(),
+                anchor_spl::token::Transfer {
+                    from: pd.burn_ta.to_account_info(),
+                    to: pd.user_ta.to_account_info(),
+                    authority: pd.burn_ta.to_account_info(),
+                },
+                &[&[pd.mint.key().as_ref(), &[burn_bump]]]
+            ),
+            withdraw_amount.into()
+        )?;
+    } else {
+        if pd.token_record.is_some() {
+            let mut token_transfer_cpi = TransferV1CpiBuilder::new(pd.token_metadata_program)
+                .token(pd.vault_ta)
+                .token_owner(pd.vault_ta)
+                .destination_token(pd.user_ta)
+                .destination_owner(pd.user_ta_owner)
+                .token_record(pd.token_record)
+                .destination_token_record(pd.destination_token_record)
+                .edition(pd.edition)
+                .mint(pd.mint)
+                .metadata(pd.metadata.unwrap())
+                .authority(pd.vault_ta)
+                .payer(pd.user_ta_owner)
+                .system_program(pd.system_program)
+                .sysvar_instructions(pd.instructions)
+                .spl_token_program(pd.token_program)
+                .spl_ata_program(pd.associated_token_program)
+                .amount(withdraw_amount)
+                .invoke_signed(
+                    &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+                )?;
+        } else {
+            anchor_spl::token::transfer(
+                CpiContext::new_with_signer(
+                    pd.token_program.to_account_info(),
+                    anchor_spl::token::Transfer {
+                        from: pd.vault_ta.to_account_info(),
+                        to: pd.user_ta.to_account_info(),
+                        authority: pd.vault_ta.to_account_info(),
+                    },
+                    &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+                ),
+                withdraw_amount.into()
+            )?;
+        }
     }
 
     // check if withdraw_type is WithdrawType::OwnerBurn or WithdrawType::NonOwnerBurn

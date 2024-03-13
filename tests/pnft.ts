@@ -102,25 +102,18 @@ describe("pnft", function () {
     this.pnftMint = pnftMint.publicKey;
     this.program = anchor.workspace.Casier;
 
-    console.log(">> Initialize Casier");
-    await this.program.methods.initialize().rpc();
+    this.txSender = new TxSender(this.connection, false);
 
-    console.log(">> Initialize Config");
     const [configPDA] = PublicKey.findProgramAddressSync(
       [anchor.utils.bytes.utf8.encode("config")],
       this.program.programId
     );
+    const [lockerPDA] = PublicKey.findProgramAddressSync(
+      [this.adminPk.toBytes()],
+      this.program.programId
+    );
     this.configPDA = configPDA;
-    await this.program.methods
-      .initConfig()
-      .accounts({
-        config: configPDA,
-        feePayer: adminKeypair.publicKey,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .rpc();
-    this.txSender = new TxSender(this.connection, true);
+    this.lockerPDA = lockerPDA;
 
     this.lookupTable = await createLookupTable(this.txSender, this.payer, [
       configPDA,
@@ -133,25 +126,45 @@ describe("pnft", function () {
       toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
     ]);
 
-    const space = new anchor.BN(500);
-    const [lockerPDA] = PublicKey.findProgramAddressSync(
-      [this.adminPk.toBytes()],
-      this.program.programId
-    );
-    this.lockerPDA = lockerPDA;
-    await this.program.methods
-      .initLocker(space)
-      .accounts({
-        locker: this.lockerPDA,
-        owner: this.adminPk,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .signers([this.signer])
-      .rpc();
+    let existingConfig;
+    try {
+      existingConfig = await this.program.account.config.fetch(configPDA);
+    } catch (e) {}
+    if (!existingConfig) {
+      console.log(">> Initialize Config");
+      await this.program.methods
+        .initConfig()
+        .accounts({
+          config: configPDA,
+          feePayer: adminKeypair.publicKey,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .rpc();
+    }
+
+    let existingLocker;
+    try {
+      existingLocker = await this.program.account.locker.fetch(lockerPDA);
+    } catch (e) {}
+    if (!existingLocker) {
+      console.log(">> Initialize Locker");
+      const space = new anchor.BN(500);
+
+      await this.program.methods
+        .initLocker(space)
+        .accounts({
+          locker: this.lockerPDA,
+          owner: this.adminPk,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([this.signer])
+        .rpc();
+    }
   });
 
-  it("Prepare", async function (this: CustomContext) {
+  it("Deposit pNFT", async function (this: CustomContext) {
     const mints: Array<PublicKey> = [this.pnftMint].map((m) =>
       toWeb3JsPublicKey(m)
     );
@@ -281,6 +294,150 @@ describe("pnft", function () {
         ix,
       ],
       payer: this.adminPk,
+      signers: [this.signer],
+      lookupTableAccount: this.lookupTable,
+    });
+    const vaultAccount = await this.connection.getParsedAccountInfo(
+      remainingAccounts[5].pubkey
+    );
+    // console.log(remainingAccounts[5].pubkey.toString());
+    // console.log(vaultAccount.value.data?.parsed);
+    const lockerAccount = await this.program.account.locker.fetch(
+      this.lockerPDA
+    );
+    // console.log(lockerAccount);
+  });
+
+  it("Withdraw pNFT", async function (this: CustomContext) {
+    const mints: Array<PublicKey> = [this.pnftMint].map((m) =>
+      toWeb3JsPublicKey(m)
+    );
+    const withdrawAmounts = mints.map((v, i) => new anchor.BN(1));
+    const beforeAmounts = mints.map((v, i) => new anchor.BN(1));
+    const finalAmounts = mints.map((v, i) => new anchor.BN(0));
+    const remainingAccounts: Array<AccountMeta> = [];
+    const vaultBumps: Array<number> = [];
+    const burnBumps: Array<number> = [];
+    const vaultFinalAmounts = mints.map((v, i) => new anchor.BN(0));
+    const withTransfer = true;
+    const userPk = this.adminPk;
+    const pnftCount = 1;
+    for (let index = 0; index < mints.length; index++) {
+      if (index < pnftCount) {
+        remainingAccounts.push({
+          pubkey: toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
+          isWritable: false,
+          isSigner: false,
+        });
+        remainingAccounts.push({
+          pubkey: SYSVAR_INSTRUCTIONS_PUBKEY,
+          isWritable: false,
+          isSigner: false,
+        });
+      }
+      const mint = mints[index];
+      const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
+        [mint.toBuffer()],
+        this.program.programId
+      );
+      burnBumps.push(burnBump);
+      remainingAccounts.push({
+        pubkey: mint,
+        isWritable: true,
+        isSigner: false,
+      });
+      const userTa = getAssociatedTokenAddressSync(mint, userPk);
+      remainingAccounts.push({
+        pubkey: userTa, // user ta
+        isWritable: true,
+        isSigner: false,
+      });
+      const [vaultTa, vaultBump] = PublicKey.findProgramAddressSync(
+        [mint.toBuffer(), userPk.toBuffer()],
+        this.program.programId
+      );
+      remainingAccounts.push({
+        pubkey: vaultTa,
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: userPk,
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: burnTa,
+        isWritable: true,
+        isSigner: false,
+      });
+      vaultBumps.push(vaultBump);
+      const [metadataPda] = findMetadataPda(this.umi, {
+        mint: fromWeb3JsPublicKey(mint),
+      });
+      remainingAccounts.push({
+        pubkey: toWeb3JsPublicKey(metadataPda),
+        isWritable: true,
+        isSigner: false,
+      });
+      const [tokenRecordSender] = findTokenRecordPda(this.umi, {
+        mint: fromWeb3JsPublicKey(mint),
+        token: fromWeb3JsPublicKey(vaultTa),
+      });
+      const [tokenRecordDestination] = findTokenRecordPda(this.umi, {
+        mint: fromWeb3JsPublicKey(mint),
+        token: fromWeb3JsPublicKey(userTa),
+      });
+      remainingAccounts.push({
+        pubkey: toWeb3JsPublicKey(tokenRecordSender),
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: toWeb3JsPublicKey(tokenRecordDestination),
+        isWritable: true,
+        isSigner: false,
+      });
+      const [editionPk] = await findMasterEditionPda(this.umi, {
+        mint: this.pnftMint,
+      });
+      remainingAccounts.push({
+        pubkey: toWeb3JsPublicKey(editionPk),
+        isWritable: false,
+        isSigner: false,
+      });
+    }
+
+    const user = userPk;
+    const withdrawInstruction = await this.program.methods
+      .withdrawV2Batch(
+        withdrawAmounts,
+        beforeAmounts,
+        finalAmounts,
+        Buffer.from(vaultBumps),
+        Buffer.from(burnBumps),
+        pnftCount
+      )
+      .accounts({
+        config: this.configPDA,
+        locker: this.lockerPDA,
+        admin: userPk,
+        userTaOwner: userPk,
+        vaultTaOwner: userPk,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .remainingAccounts(remainingAccounts)
+      .instruction();
+
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        withdrawInstruction,
+      ],
+      payer: userPk,
       signers: [this.signer],
       lookupTableAccount: this.lookupTable,
     });
