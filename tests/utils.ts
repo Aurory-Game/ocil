@@ -6,6 +6,8 @@ import {
   VersionedTransaction,
   PublicKey,
   AddressLookupTableAccount,
+  AddressLookupTableProgram,
+  Keypair,
 } from "@solana/web3.js";
 
 interface CreateAndSendV0Tx {
@@ -59,6 +61,7 @@ export class TxSender {
 
     const txid = await this.connection.sendTransaction(transaction, {
       maxRetries: 5,
+      skipPreflight: true,
     });
     this.log(log, "   ✅ - Transaction sent to network");
     let ptx = null;
@@ -82,4 +85,40 @@ export class TxSender {
       this.log(log, "   ✅ - Transaction executed successfully");
     }
   }
+}
+
+export async function createLookupTable(
+  txSender: TxSender,
+  payer: Keypair,
+  addresses: PublicKey[]
+): Promise<AddressLookupTableAccount> {
+  const connection = txSender.connection;
+  const slot = await connection.getSlot("finalized");
+  const [createLookupTableInst, lookupTableAddress] =
+    AddressLookupTableProgram.createLookupTable({
+      authority: payer.publicKey,
+      payer: payer.publicKey,
+      recentSlot: slot,
+    });
+  const extendTableInst = AddressLookupTableProgram.extendLookupTable({
+    /** Address lookup table account to extend. */
+    lookupTable: lookupTableAddress,
+    /** Account which is the current authority. */
+    authority: payer.publicKey,
+    /** Account that will fund the table reallocation.
+     * Not required if the reallocation has already been funded. */
+    payer: payer.publicKey,
+    /** List of Public Keys to be added to the lookup table. */
+    addresses,
+  });
+
+  await txSender.createAndSendV0Tx({
+    txInstructions: [createLookupTableInst, extendTableInst],
+    payer: payer.publicKey,
+    signers: [payer],
+  });
+  const lookupTable = (
+    await connection.getAddressLookupTable(lookupTableAddress)
+  ).value;
+  return lookupTable;
 }

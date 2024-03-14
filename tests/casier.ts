@@ -762,7 +762,8 @@ describe("casier", () => {
         beforeAmounts,
         Buffer.from(vaultBumps),
         Buffer.from(burnBumps),
-        false // set to 'true' if you want to go to burn TA, otherwise 'false'
+        false, // set to 'true' if you want to go to burn TA, otherwise 'false'
+        0 // pnft count
       )
       .accounts({
         config: configPDA,
@@ -859,6 +860,7 @@ describe("casier", () => {
       vaultTAs[userIndex][0]
     );
 
+    const pnftCount = 0;
     const user = users[userIndex];
     const withdrawInstruction = await program.methods
       .withdrawV2Batch(
@@ -866,7 +868,8 @@ describe("casier", () => {
         beforeAmounts,
         finalAmounts,
         Buffer.from(vaultBumps),
-        Buffer.from(burnBumps)
+        Buffer.from(burnBumps),
+        pnftCount
       )
       .accounts({
         config: configPDA,
