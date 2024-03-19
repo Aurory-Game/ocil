@@ -102,10 +102,8 @@ pub mod casier {
         let instructions = &remaining_accounts[2];
         msg!("pnft_ra_length {:?}", pnft_ra_length);
         let mut index = if pnft_count > 0 { 3 } else { 0 };
-        let mut mint_index = 0;
+        let mut mint_index: usize = 0;
         while index < remaining_accounts.len() {
-            msg!("index {:?}", index);
-            msg!("mint_index {:?}", mint_index);
             let mut pd = PerformDepositV2 {
                 config: config,
                 locker: locker,
