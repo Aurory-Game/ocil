@@ -112,7 +112,6 @@ pub mod casier {
         let token_metadata_program = &remaining_accounts[0];
         let spl_ata_program_info = &remaining_accounts[1];
         let instructions = &remaining_accounts[2];
-        msg!("pnft_ra_length {:?}", pnft_ra_length);
         let mut index = if pnft_count > 0 { 3 } else { 0 };
         let mut mint_index: usize = 0;
         while index < remaining_accounts.len() {

@@ -103,7 +103,6 @@ describe("pnft", function () {
     this.pnftMints = await Promise.all(
       Array.from({ length: 2 }).map(async (v, i) => {
         const mint = generateSigner(this.umi);
-        console.log("mint", mint.publicKey);
         const user = this.users[i % this.users.length];
         const userTa = getAssociatedTokenAddressSync(
           toWeb3JsPublicKey(mint.publicKey),
@@ -113,7 +112,6 @@ describe("pnft", function () {
           mint: mint.publicKey,
           token: fromWeb3JsPublicKey(userTa),
         });
-        console.log(tokenRecordSender);
 
         const ind = await createProgrammableNft(this.umi, {
           name: "My NFT",
@@ -132,11 +130,7 @@ describe("pnft", function () {
           // token: fromWeb3JsPublicKey(userTa),
           // tokenRecord: tokenRecordSender,
         }).sendAndConfirm(this.umi);
-        console.log(
-          await connection.getParsedAccountInfo(
-            toWeb3JsPublicKey(tokenRecordSender)
-          )
-        );
+
         return mint.publicKey;
       })
     );
@@ -195,7 +189,6 @@ describe("pnft", function () {
       user.publicKey,
       depositAmounts
     );
-    console.log("here");
     await this.txSender.createAndSendV0Tx({
       txInstructions: [
         ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
