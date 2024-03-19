@@ -326,27 +326,9 @@ pub fn perform_depositV2<'b, 'c, 'info>(
     mut pd: PerformDepositV2<'b, 'c, 'info>,
     vault_bump: u8,
     deposit_amount: u64,
-    before_amount: u64,
     burn_bump: u8,
     should_go_in_burn_ta: bool
 ) -> Result<()> {
-    let locker = &mut pd.locker;
-    let mk = pd.mint.key();
-    match locker.mints.iter().position(|&lm| lm == mk) {
-        None => {
-            if before_amount > 0 {
-                return Err(error!(ErrorCode::InvalidBeforeState));
-            }
-            locker.mints.push(mk);
-            locker.amounts.push(deposit_amount);
-        }
-        Some(i) => {
-            if before_amount != locker.amounts[i] {
-                return Err(error!(ErrorCode::InvalidBeforeState2));
-            }
-            locker.amounts[i] += deposit_amount;
-        }
-    }
     if should_go_in_burn_ta {
         if *pd.burn_ta.to_account_info().owner != pd.token_program.key() {
             let vault_account_seeds = &[pd.mint.to_account_info().key.as_ref(), &[burn_bump]];
@@ -617,7 +599,6 @@ pub fn perform_withdraw<'b, 'c, 'info>(
 pub fn perform_withdrawV2<'b, 'c, 'info>(
     mut pd: PerformWithdrawV2<'b, 'c, 'info>,
     withdraw_amount: u64,
-    before_amount: u64,
     final_amount: u64,
     vault_bump: u8,
     burn_bump: u8
@@ -633,29 +614,6 @@ pub fn perform_withdrawV2<'b, 'c, 'info>(
     };
     if sourceTa.amount < withdraw_amount {
         return Err(error!(ErrorCode::InsufficientFunds));
-    }
-
-    match locker.mints.iter().position(|&lm| lm == mk) {
-        Some(mint_position) => {
-            if locker.amounts[mint_position] != before_amount {
-                return Err(error!(ErrorCode::InvalidBeforeState));
-            } else if final_amount > 0 {
-                locker.amounts[mint_position] = final_amount;
-            } else {
-                locker.mints.remove(mint_position);
-                locker.amounts.remove(mint_position);
-            }
-        }
-        None => {
-            if before_amount != 0 {
-                return Err(error!(ErrorCode::InvalidBeforeState2));
-            } else if !withdraw_from_burner_ta {
-                return Err(error!(ErrorCode::WithdrawForMintNotInLocker));
-            } else if final_amount > 0 {
-                locker.mints.push(mk);
-                locker.amounts.push(final_amount);
-            }
-        }
     }
 
     let withdraw_type = get_withdraw_type(

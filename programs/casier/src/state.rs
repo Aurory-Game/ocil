@@ -268,6 +268,16 @@ pub struct InitLocker<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitLockerV2<'info> {
+    #[account(init, seeds = [owner.key().as_ref()], bump, payer = owner, space = Locker::MAX_SIZE)]
+    pub locker: Account<'info, Locker>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
 #[instruction(_space: u64)]
 pub struct IncreaseLockerSize {
     // #[account(
@@ -299,6 +309,19 @@ pub struct Locker {
     pub amounts: Vec<u64>,
     pub version: u8,
     pub space: u64,
+}
+
+impl Locker {
+    pub const MAX_ENTRIES: usize = 0; // Assuming N is defined somewhere
+    pub const MAX_SIZE: usize =
+        8 + // Discriminator
+        32 + // Owner
+        4 +
+        32 * Self::MAX_ENTRIES + // Mints
+        4 +
+        8 * Self::MAX_ENTRIES + // Amounts
+        1 + // Version
+        8; // Space
 }
 
 #[error_code]

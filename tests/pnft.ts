@@ -190,15 +190,10 @@ describe("pnft", function () {
     const depositAmounts: Array<anchor.BN> = mints.map(
       (v, i) => new anchor.BN(1)
     );
-    const beforeAmounts: Array<anchor.BN> = mints.map(
-      (v, i) => new anchor.BN(0)
-    );
-    const pnftCount = mints.length;
     const ixs = await this.lsdk.depositInstruction(
       mints,
       user.publicKey,
-      depositAmounts,
-      beforeAmounts
+      depositAmounts
     );
     console.log("here");
     await this.txSender.createAndSendV0Tx({
@@ -228,9 +223,7 @@ describe("pnft", function () {
       toWeb3JsPublicKey(m)
     );
     const withdrawAmounts = mints.map((v, i) => new anchor.BN(1));
-    const beforeAmounts = mints.map((v, i) => new anchor.BN(1));
     const finalAmounts = mints.map((v, i) => new anchor.BN(0));
-    const pnftCount = mints.length;
     const userPk = user.publicKey;
     const vaultOwner = user.publicKey;
     const ixs = await this.lsdk.withdrawInstruction(
@@ -238,7 +231,6 @@ describe("pnft", function () {
       userPk,
       vaultOwner,
       withdrawAmounts,
-      beforeAmounts,
       finalAmounts
     );
 

@@ -102,8 +102,7 @@ export class LockerSDK {
   async depositInstruction(
     unorderedMints: PublicKey[],
     userPk: PublicKey,
-    depositAmounts: anchor.BN[],
-    beforeAmounts: anchor.BN[]
+    depositAmounts: anchor.BN[]
   ): Promise<TransactionInstruction[]> {
     const { orderedMints: mints, pnftCount } = await this.orderMints(
       unorderedMints
@@ -115,6 +114,7 @@ export class LockerSDK {
       [userPk.toBuffer()],
       this.program.programId
     );
+
     for (let index = 0; index < mints.length; index++) {
       if (index === 0 && pnftCount > 0) {
         remainingAccounts.push({
@@ -203,22 +203,26 @@ export class LockerSDK {
     }
 
     const ixs: TransactionInstruction[] = [];
+    let nonce = new anchor.BN(0);
     const lockerInitIx = await this.initLockerInstructionIfNeeded(
       userPk,
       lockerPDA
     );
     if (lockerInitIx) {
       ixs.push(lockerInitIx);
+    } else {
+      const locker = await this.program.account.locker.fetch(lockerPDA);
+      nonce = locker.space;
     }
     ixs.push(
       await this.program.methods
         .depositBatch(
           depositAmounts,
-          beforeAmounts,
           Buffer.from(vaultBumps),
           Buffer.from(burnBumps),
           false, // set to 'true' if you want to go to burn TA, otherwise 'false'
-          pnftCount
+          pnftCount,
+          nonce
         )
         .accounts({
           config: this.configPDA,
@@ -241,7 +245,6 @@ export class LockerSDK {
     userPk: PublicKey,
     vaultOwner: PublicKey,
     withdrawAmounts: anchor.BN[],
-    beforeAmounts: anchor.BN[],
     finalAmounts: anchor.BN[]
   ): Promise<TransactionInstruction[]> {
     const { orderedMints: mints, pnftCount } = await this.orderMints(
@@ -342,23 +345,27 @@ export class LockerSDK {
       this.program.programId
     );
     const ixs: TransactionInstruction[] = [];
+    let nonce = new anchor.BN(0);
     const lockerInitIx = await this.initLockerInstructionIfNeeded(
       userPk,
       lockerPDA
     );
     if (lockerInitIx) {
       ixs.push(lockerInitIx);
+    } else {
+      const locker = await this.program.account.locker.fetch(lockerPDA);
+      nonce = locker.space;
     }
 
     ixs.push(
       await this.program.methods
         .withdrawV2Batch(
           withdrawAmounts,
-          beforeAmounts,
           finalAmounts,
           Buffer.from(vaultBumps),
           Buffer.from(burnBumps),
-          pnftCount
+          pnftCount,
+          nonce
         )
         .accounts({
           config: this.configPDA,
@@ -392,11 +399,9 @@ export class LockerSDK {
 
     if (!exists) {
       console.log(">> Initialize Locker");
-      const space = new anchor.BN(500);
-
       return (
         this.program.methods
-          .initLocker(space)
+          .initLockerV2()
           .accounts({
             locker: lockerPDA,
             owner: owner,

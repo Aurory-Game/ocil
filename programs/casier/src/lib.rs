@@ -33,6 +33,12 @@ pub mod casier {
         Ok(())
     }
 
+    pub fn init_locker_v2(ctx: Context<InitLockerV2>) -> Result<()> {
+        ctx.accounts.locker.owner = ctx.accounts.owner.key();
+        ctx.accounts.locker.space = 0 as u64;
+        Ok(())
+    }
+
     pub fn increase_locker_size(ctx: Context<IncreaseLockerSize>, _new_size: u64) -> Result<()> {
         Ok(())
     }
@@ -75,11 +81,11 @@ pub mod casier {
     pub fn deposit_batch<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, DepositBatch<'info>>,
         deposit_amounts: Vec<u64>,
-        before_amounts: Vec<u64>,
         vault_bumps: Vec<u8>,
         burn_bumps: Vec<u8>,
         should_go_in_burn_ta: bool,
-        pnft_count: u8
+        pnft_count: u8,
+        nonce: u64
     ) -> Result<()> {
         const PNFT_CHUNK_SIZE: u8 = 8;
         const NORMAL_CHUNK_SIZE: u8 = 4;
@@ -91,6 +97,12 @@ pub mod casier {
         let accounts: &'b mut DepositBatch<'info> = ctx.accounts;
         let config: &'b mut Account<'info, Config> = &mut accounts.config;
         let locker: &'b mut Account<'info, Locker> = &mut accounts.locker;
+
+        if locker.space != nonce {
+            return Err(error!(ErrorCode::InvalidBeforeState));
+        }
+        locker.space += 1;
+
         let owner: &'b Signer<'info> = &accounts.owner;
         let admin: &'b Signer<'info> = &accounts.admin;
         let system_program: &'b Program<'info, System> = &accounts.system_program;
@@ -134,7 +146,6 @@ pub mod casier {
                 pd,
                 vault_bumps[mint_index],
                 deposit_amounts[mint_index],
-                before_amounts[mint_index],
                 burn_bumps[mint_index],
                 should_go_in_burn_ta
             )?;
@@ -177,11 +188,11 @@ pub mod casier {
     pub fn withdraw_v2_batch<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, WithdrawV2Batch<'info>>,
         withdraw_amounts: Vec<u64>,
-        before_amounts: Vec<u64>,
         final_amounts: Vec<u64>,
         vault_bumps: Vec<u8>,
         burn_bumps: Vec<u8>,
-        pnft_count: u8
+        pnft_count: u8,
+        nonce: u64
     ) -> Result<()> {
         const PNFT_CHUNK_SIZE: u8 = 9;
         const NORMAL_CHUNK_SIZE: u8 = 5;
@@ -193,6 +204,12 @@ pub mod casier {
         let accounts: &'b mut WithdrawV2Batch<'info> = ctx.accounts;
         let config: &'b mut Account<'info, Config> = &mut accounts.config;
         let locker: &'b mut Account<'info, Locker> = &mut accounts.locker;
+
+        if locker.space != nonce {
+            return Err(error!(ErrorCode::InvalidBeforeState));
+        }
+
+        locker.space += 1;
         let admin: &'b Signer<'info> = &accounts.admin;
         let user_ta_owner: &'b Signer<'info> = &accounts.user_ta_owner;
         let system_program: &'b Program<'info, System> = &accounts.system_program;
@@ -238,7 +255,6 @@ pub mod casier {
             perform_withdrawV2(
                 pd,
                 withdraw_amounts[mint_index],
-                before_amounts[mint_index],
                 final_amounts[mint_index],
                 vault_bumps[mint_index],
                 burn_bumps[mint_index]
