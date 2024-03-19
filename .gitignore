@@ -4,4 +4,8 @@
 target
 **/*.rs.bk
 node_modules
+package/node_modules
 test-ledger
+lib
+package/lib
+.env*

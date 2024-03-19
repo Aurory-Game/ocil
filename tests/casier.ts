@@ -1,5 +1,5 @@
-import * as anchor from "@project-serum/anchor";
-import { Program } from "@project-serum/anchor";
+import * as anchor from "@coral-xyz/anchor";
+import { Program } from "@coral-xyz/anchor";
 //@ts-ignore
 import { Casier } from "../target/types/casier";
 import {
@@ -7,7 +7,12 @@ import {
   Keypair,
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
-  ParsedAccountData,
+  Connection,
+  ParsedTransactionWithMeta,
+  ComputeBudgetProgram,
+  Signer,
+  AddressLookupTableProgram,
+  AddressLookupTableAccount,
 } from "@solana/web3.js";
 import {
   createMint,
@@ -15,10 +20,9 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccount,
-  closeAccount,
-  getAccount,
 } from "@solana/spl-token";
-import { assert, expect } from "chai";
+import { assert } from "chai";
+import { TxSender } from "./utils";
 
 // Configure the client to use the local cluster.
 anchor.setProvider(anchor.AnchorProvider.env());
@@ -26,8 +30,12 @@ anchor.setProvider(anchor.AnchorProvider.env());
 const program = anchor.workspace.Casier as Program<Casier>;
 const provider = program.provider as anchor.AnchorProvider;
 const payer = (provider.wallet as anchor.Wallet).payer;
+const signer = {
+  publicKey: payer.publicKey,
+  secretKey: payer.secretKey,
+} as Signer;
 const providerPk = (program.provider as anchor.AnchorProvider).wallet.publicKey;
-
+const txSender = new TxSender(provider.connection);
 const mints = [];
 const users = [...Array(3).keys()].map(() => Keypair.generate());
 
@@ -41,6 +49,7 @@ const tokenAccountBumps: number[][] = [];
 const vaultTAs: PublicKey[][] = [];
 // 2D array: user index, token account bumps by mint index
 const vaultTABumps: number[][] = [];
+let lookupTable: AddressLookupTableAccount;
 
 describe("casier", () => {
   it("Prepare", async () => {
@@ -80,7 +89,7 @@ describe("casier", () => {
         tokenAccounts.push([]);
         tokenAccountBumps.push([]);
         return Promise.all(
-          mints.slice(0, 1).map(async (mint) => {
+          mints.map(async (mint) => {
             const [address, bump] = await PublicKey.findProgramAddress(
               [
                 user.publicKey.toBuffer(),
@@ -104,22 +113,20 @@ describe("casier", () => {
 
     // mint tokens
     await Promise.all(
-      mints
-        .slice(0, 1)
-        .flatMap((mint, mintIndex) =>
-          users
-            .slice(0, 2)
-            .map((user, userIndex) =>
-              mintTo(
-                provider.connection,
-                payer,
-                mint,
-                tokenAccounts[userIndex][mintIndex],
-                payer.publicKey,
-                200
-              )
+      mints.flatMap((mint, mintIndex) =>
+        users
+          .slice(0, 2)
+          .map((user, userIndex) =>
+            mintTo(
+              provider.connection,
+              payer,
+              mint,
+              tokenAccounts[userIndex][mintIndex],
+              payer.publicKey,
+              300
             )
-        )
+          )
+      )
     );
 
     // init user lockers
@@ -151,6 +158,41 @@ describe("casier", () => {
         })
       )
     );
+    const slot = await provider.connection.getSlot("finalized");
+    const [createLookupTableInst, lookupTableAddress] =
+      AddressLookupTableProgram.createLookupTable({
+        authority: payer.publicKey,
+        payer: payer.publicKey,
+        recentSlot: slot,
+      });
+    const extendTableInst = AddressLookupTableProgram.extendLookupTable({
+      /** Address lookup table account to extend. */
+      lookupTable: lookupTableAddress,
+      /** Account which is the current authority. */
+      authority: payer.publicKey,
+      /** Account that will fund the table reallocation.
+       * Not required if the reallocation has already been funded. */
+      payer: payer.publicKey,
+      /** List of Public Keys to be added to the lookup table. */
+      addresses: [
+        configPDA,
+        providerPk,
+        SystemProgram.programId,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        SYSVAR_RENT_PUBKEY,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      ],
+    });
+
+    await txSender.createAndSendV0Tx({
+      txInstructions: [createLookupTableInst, extendTableInst],
+      payer: payer.publicKey,
+      signers: [payer],
+    });
+    lookupTable = (
+      await provider.connection.getAddressLookupTable(lookupTableAddress)
+    ).value;
   });
 
   it("Is initialized!", async () => {
@@ -203,6 +245,57 @@ describe("casier", () => {
   it("Deposit to closed vault TA: u: 0, m: 0, a: 100", async () => {
     const userIndex = 0;
     const mintIndex = 0;
+    const deposit_amount = new anchor.BN(100);
+
+    const { beforeAmount, finalAmount } = await getCheckAmounts(
+      "deposit",
+      userIndex,
+      mintIndex,
+      deposit_amount
+    );
+
+    const user = users[userIndex];
+    const mint = mints[mintIndex];
+    const userTa = tokenAccounts[userIndex][mintIndex];
+    const vaultTa = vaultTAs[userIndex][mintIndex];
+    const vaultBump = vaultTABumps[userIndex][mintIndex];
+    const locker = lockerPDAs[userIndex];
+
+    const should_go_in_burn_ta = false;
+    const [burnTa, burnBump] = await PublicKey.findProgramAddress(
+      [mint.toBuffer()],
+      program.programId
+    );
+    const tx = await program.methods
+      .deposit(
+        vaultBump,
+        deposit_amount,
+        beforeAmount,
+        burnBump,
+        should_go_in_burn_ta
+      )
+      .accounts({
+        config: configPDA,
+        locker,
+        mint: mint,
+        owner: user.publicKey,
+        admin: providerPk,
+        burnTa,
+        userTa,
+        vaultTa,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .signers([user, payer])
+      .rpc();
+
+    await afterChecks(mintIndex, vaultTa, locker, finalAmount, mint);
+  });
+
+  it("Deposit to closed vault TA second mint: u: 0, m: 1, a: 100", async () => {
+    const userIndex = 0;
+    const mintIndex = 1;
     const deposit_amount = new anchor.BN(100);
 
     const { beforeAmount, finalAmount } = await getCheckAmounts(
@@ -607,6 +700,213 @@ describe("casier", () => {
       .tokenAmount.uiAmount;
     assert.strictEqual(burnTaAmountAfter + 1, burnTaAmountBefore);
   });
+
+  it("Deposit batch", async () => {
+    const modifyComputeUnits = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 1400000,
+    });
+    const { blockhash } = await provider.connection.getLatestBlockhash();
+    const userIndex = 0;
+    const depositAmounts = mints.map((v, i) => new anchor.BN(i + 1));
+    const beforeAmounts = [];
+    const finalAmounts = [];
+    const remainingAccounts = [];
+    const burnBumps = [];
+    const vaultBumps = [];
+    const vaultFinalAmounts = [];
+
+    for (let index = 0; index < mints.length; index++) {
+      const mint = mints[index];
+      const { beforeAmount, finalAmount, vaultFinalAmount } =
+        await getCheckAmountsV2(
+          "deposit",
+          userIndex,
+          index,
+          depositAmounts[index]
+        );
+      vaultFinalAmounts.push(vaultFinalAmount);
+      beforeAmounts.push(beforeAmount);
+      finalAmounts.push(finalAmount);
+      const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
+        [mint.toBuffer()],
+        program.programId
+      );
+      burnBumps.push(burnBump);
+      remainingAccounts.push({
+        pubkey: mint,
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: tokenAccounts[userIndex][index], // user ta
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: vaultTAs[userIndex][index],
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: burnTa,
+        isWritable: true,
+        isSigner: false,
+      });
+      vaultBumps.push(vaultTABumps[userIndex][index]);
+    }
+
+    const user = users[userIndex];
+    const locker = await program.account.locker.fetch(lockerPDAs[userIndex]);
+    const nonce = locker.space;
+    const depositInstruction = await program.methods
+      .depositBatch(
+        depositAmounts,
+        Buffer.from(vaultBumps),
+        Buffer.from(burnBumps),
+        false, // set to 'true' if you want to go to burn TA, otherwise 'false'
+        0, // pnft count
+        nonce
+      )
+      .accounts({
+        config: configPDA,
+        locker: lockerPDAs[userIndex],
+        admin: providerPk,
+        owner: user.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .remainingAccounts(remainingAccounts)
+      .instruction();
+
+    await txSender.createAndSendV0Tx({
+      txInstructions: [modifyComputeUnits, depositInstruction],
+      payer: payer.publicKey,
+      signers: [signer, user],
+      lookupTableAccount: lookupTable,
+    });
+
+    // for (let mintIndex = 0; mintIndex < mints.length; mintIndex++) {
+    //   await afterChecksV2(
+    //     mintIndex,
+    //     vaultTAs[userIndex][mintIndex],
+    //     lockerPDAs[userIndex],
+    //     finalAmounts[mintIndex],
+    //     mints[mintIndex],
+    //     vaultFinalAmounts[mintIndex]
+    //   );
+    // }
+  });
+
+  it("Withdraw v2 batch", async () => {
+    const modifyComputeUnits = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 1400000,
+    });
+    const { blockhash } = await provider.connection.getLatestBlockhash();
+    const userIndex = 0;
+    const withdrawAmounts = mints.map((v, i) => new anchor.BN(i + 1));
+    const beforeAmounts = [];
+    const finalAmounts = [];
+    const remainingAccounts = [];
+    const burnBumps = [];
+    const vaultBumps = [];
+    const vaultFinalAmounts = [];
+    const withTransfer = true;
+
+    for (let index = 0; index < mints.length; index++) {
+      const mint = mints[index];
+      const { beforeAmount, finalAmount, vaultFinalAmount } =
+        await getCheckAmountsV2(
+          "withdraw",
+          userIndex,
+          index,
+          withdrawAmounts[index]
+        );
+      vaultFinalAmounts.push(vaultFinalAmount);
+      beforeAmounts.push(beforeAmount);
+      finalAmounts.push(finalAmount);
+      const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
+        [mint.toBuffer()],
+        program.programId
+      );
+      burnBumps.push(burnBump);
+      remainingAccounts.push({
+        pubkey: mint,
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: tokenAccounts[userIndex][index], // user ta
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: vaultTAs[userIndex][index],
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: users[userIndex].publicKey,
+        isWritable: true,
+        isSigner: false,
+      });
+      remainingAccounts.push({
+        pubkey: burnTa,
+        isWritable: true,
+        isSigner: false,
+      });
+      vaultBumps.push(vaultTABumps[userIndex][index]);
+    }
+
+    const vaultAccount = await provider.connection.getParsedAccountInfo(
+      vaultTAs[userIndex][0]
+    );
+
+    const pnftCount = 0;
+    const user = users[userIndex];
+    const locker = await program.account.locker.fetch(lockerPDAs[userIndex]);
+    const nonce = locker.space;
+    const withdrawInstruction = await program.methods
+      .withdrawV2Batch(
+        withdrawAmounts,
+        finalAmounts,
+        Buffer.from(vaultBumps),
+        Buffer.from(burnBumps),
+        pnftCount,
+        nonce
+      )
+      .accounts({
+        config: configPDA,
+        locker: lockerPDAs[userIndex],
+        admin: providerPk,
+        userTaOwner: user.publicKey,
+        vaultTaOwner: user.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .remainingAccounts(remainingAccounts)
+      .instruction();
+
+    await txSender.createAndSendV0Tx({
+      txInstructions: [modifyComputeUnits, withdrawInstruction],
+      payer: payer.publicKey,
+      signers: [signer, user],
+      lookupTableAccount: lookupTable,
+    });
+
+    // for (let mintIndex = 0; mintIndex < mints.length; mintIndex++) {
+    //   await afterChecksV2(
+    //     mintIndex,
+    //     vaultTAs[userIndex][mintIndex],
+    //     lockerPDAs[userIndex],
+    //     finalAmounts[mintIndex],
+    //     mints[mintIndex],
+    //     vaultFinalAmounts[mintIndex]
+    //   );
+    // }
+  });
 });
 
 async function getCheckAmounts(
@@ -636,6 +936,52 @@ async function getCheckAmounts(
     ? beforeAmount.add(sign.mul(withdrawAmount))
     : beforeAmount;
   return { beforeAmount, finalAmount, lockerAccount, lockerMintIndex };
+}
+
+async function getCheckAmountsV2(
+  txType: "deposit" | "withdraw",
+  userIndex: number,
+  mintIndex: number,
+  amount: anchor.BN,
+  withTransfer: boolean = true
+): Promise<{
+  beforeAmount: anchor.BN;
+  finalAmount: anchor.BN;
+  lockerAccount: any;
+  lockerMintIndex: number;
+  vaultFinalAmount: anchor.BN;
+}> {
+  const lockerAccount = await program.account.locker.fetch(
+    lockerPDAs[userIndex]
+  );
+  const lockerMintIndex = lockerAccount.mints.findIndex(
+    (v) => v.toString() === mints[mintIndex].toString()
+  );
+  let beforeAmount =
+    lockerMintIndex !== -1
+      ? lockerAccount.amounts[lockerMintIndex]
+      : new anchor.BN(0);
+  const sign = txType == "deposit" ? new anchor.BN(1) : new anchor.BN(-1);
+  let finalAmount = withTransfer
+    ? beforeAmount.add(sign.mul(amount))
+    : beforeAmount;
+  const vaultAccount = await provider.connection.getParsedAccountInfo(
+    vaultTAs[userIndex][mintIndex]
+  );
+  const vaultAmount = (
+    vaultAccount?.value?.data as any
+  )?.parsed?.info?.tokenAmount?.uiAmount?.toString();
+  const vaultBeforeAmount = vaultAmount
+    ? new anchor.BN(vaultAmount)
+    : new anchor.BN(0);
+  const vaultFinalAmount = vaultBeforeAmount.add(sign.mul(amount));
+  return {
+    beforeAmount,
+    finalAmount,
+    lockerAccount,
+    lockerMintIndex,
+    vaultFinalAmount,
+  };
 }
 
 async function afterChecks(
@@ -670,4 +1016,66 @@ async function afterChecks(
     assert.isNull(vaultAccount.value);
     assert.strictEqual(lockerMintIndex, -1);
   }
+}
+
+async function afterChecksV2(
+  mintIndex: number,
+  vaultTa: anchor.web3.PublicKey,
+  locker: anchor.web3.PublicKey,
+  finalAmount: anchor.BN,
+  mint: string,
+  vaultFinalAmount: anchor.BN
+): Promise<void> {
+  const vaultAccount = await provider.connection.getParsedAccountInfo(vaultTa);
+  const lockerAccount = await program.account.locker.fetch(locker);
+  const lockerMintIndex = lockerAccount.mints.findIndex(
+    (v) => v.toString() === mints[mintIndex].toString()
+  );
+
+  if (finalAmount.toString() !== "0") {
+    assert.strictEqual(
+      lockerAccount.amounts[lockerMintIndex].toString(),
+      finalAmount.toString()
+    );
+    assert.strictEqual(
+      lockerAccount.mints[lockerMintIndex].toString(),
+      mint.toString()
+    );
+  } else {
+    assert.isNull(vaultAccount.value);
+    assert.strictEqual(lockerMintIndex, -1);
+  }
+  if (vaultFinalAmount.toString() !== "0") {
+    assert.strictEqual(
+      (
+        vaultAccount.value.data as any
+      ).parsed.info.tokenAmount.uiAmount.toString(),
+      vaultFinalAmount.toString()
+    );
+  } else {
+    assert.isNull(vaultAccount.value);
+  }
+}
+
+async function getTransaction(
+  signature: string,
+  connection: Connection,
+  log: boolean = false
+): Promise<ParsedTransactionWithMeta> {
+  let ptx = null;
+  while (ptx === null) {
+    ptx = await connection.getParsedTransaction(signature, {
+      maxSupportedTransactionVersion: 0,
+      commitment: "confirmed",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  if (log) {
+    ptx?.meta?.logMessages
+      ? ptx?.meta?.logMessages?.forEach((log) => {
+          console.log(log);
+        })
+      : console.log(ptx);
+  }
+  return ptx;
 }
