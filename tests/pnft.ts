@@ -3,14 +3,7 @@ import {
   MPL_TOKEN_METADATA_PROGRAM_ID,
   createProgrammableNft,
   mplTokenMetadata,
-  findMetadataPda,
   findTokenRecordPda,
-  fetchEdition,
-  findMasterEditionPda,
-  createAndMint,
-  TokenStandard,
-  createV1,
-  mintV1,
 } from "@metaplex-foundation/mpl-token-metadata";
 import {
   generateSigner,
@@ -19,10 +12,6 @@ import {
   Umi,
   PublicKey as UmiPublicKey,
   sol,
-  transactionBuilder,
-  signerIdentity,
-  publicKey,
-  Signer as UmiSigner,
   createSignerFromKeypair,
   Keypair as UmiKeypair,
 } from "@metaplex-foundation/umi";
@@ -31,7 +20,6 @@ import { Context } from "mocha";
 import { Program } from "@coral-xyz/anchor";
 import { Casier } from "../target/types/casier";
 import {
-  AccountMeta,
   AddressLookupTableAccount,
   ComputeBudgetProgram,
   Connection,
@@ -40,7 +28,6 @@ import {
   SYSVAR_INSTRUCTIONS_PUBKEY,
   SYSVAR_RENT_PUBKEY,
   SystemProgram,
-  Signer,
 } from "@solana/web3.js";
 import {
   toWeb3JsPublicKey,
@@ -54,6 +41,7 @@ import {
 } from "@solana/spl-token";
 import { TxSender, createLookupTable } from "./utils";
 import { LockerSDK } from "../package/index";
+// import { LockerSDK } from "@aurory/lockersdk";
 
 anchor.setProvider(anchor.AnchorProvider.env());
 

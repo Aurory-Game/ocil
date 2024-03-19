@@ -1,4 +1,12 @@
 {
+  "name": "casier",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aurory-Game/ocil.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aurory-Game/ocil/issues"
+  },
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
@@ -6,6 +14,7 @@
     "test": "anchor test"
   },
   "dependencies": {
+    "@aurory/lockersdk": "file:./package",
     "@coral-xyz/anchor": "^0.29.0"
   },
   "devDependencies": {
