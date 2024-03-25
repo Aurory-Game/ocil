@@ -215,8 +215,7 @@ describe("pnft", function () {
       userPk,
       vaultOwner,
       withdrawAmounts,
-      finalAmounts,
-      shouldGoInBurnTa
+      finalAmounts
     );
 
     await this.txSender.createAndSendV0Tx({

@@ -244,8 +244,7 @@ export class LockerSDK {
     userPk: PublicKey,
     vaultOwner: PublicKey,
     withdrawAmounts: anchor.BN[],
-    finalAmounts: anchor.BN[],
-    shouldGoInBurnTa: boolean
+    finalAmounts: anchor.BN[]
   ): Promise<TransactionInstruction[]> {
     const { orderedMints: mints, pnftCount } = await this.orderMints(
       unorderedMints
