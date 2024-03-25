@@ -37,8 +37,6 @@ import {
   PublicKey as UmiPublicKey,
   unwrapOption,
 } from "@metaplex-foundation/umi";
-import fs from "fs";
-import path from "path";
 import { Casier } from "../target/types/casier";
 import idl from "../target/idl/casier.json";
 
@@ -102,7 +100,8 @@ export class LockerSDK {
   async depositInstruction(
     unorderedMints: PublicKey[],
     userPk: PublicKey,
-    depositAmounts: anchor.BN[]
+    depositAmounts: anchor.BN[],
+    shouldGoInBurnTa: boolean
   ): Promise<TransactionInstruction[]> {
     const { orderedMints: mints, pnftCount } = await this.orderMints(
       unorderedMints
@@ -220,7 +219,7 @@ export class LockerSDK {
           depositAmounts,
           Buffer.from(vaultBumps),
           Buffer.from(burnBumps),
-          false, // set to 'true' if you want to go to burn TA, otherwise 'false'
+          shouldGoInBurnTa,
           pnftCount,
           nonce
         )
@@ -245,7 +244,8 @@ export class LockerSDK {
     userPk: PublicKey,
     vaultOwner: PublicKey,
     withdrawAmounts: anchor.BN[],
-    finalAmounts: anchor.BN[]
+    finalAmounts: anchor.BN[],
+    shouldGoInBurnTa: boolean
   ): Promise<TransactionInstruction[]> {
     const { orderedMints: mints, pnftCount } = await this.orderMints(
       unorderedMints
@@ -385,7 +385,7 @@ export class LockerSDK {
     return ixs;
   }
 
-  async initLockerInstructionIfNeeded(
+  private async initLockerInstructionIfNeeded(
     owner: PublicKey,
     lockerPDA: PublicKey
   ): Promise<TransactionInstruction | null> {

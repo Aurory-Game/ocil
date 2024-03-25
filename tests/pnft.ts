@@ -172,10 +172,12 @@ describe("pnft", function () {
     const depositAmounts: Array<anchor.BN> = mints.map(
       (v, i) => new anchor.BN(1)
     );
+    const shouldGoInBurnTa = false;
     const ixs = await this.lsdk.depositInstruction(
       mints,
       user.publicKey,
-      depositAmounts
+      depositAmounts,
+      shouldGoInBurnTa
     );
     await this.txSender.createAndSendV0Tx({
       txInstructions: [
@@ -207,12 +209,14 @@ describe("pnft", function () {
     const finalAmounts = mints.map((v, i) => new anchor.BN(0));
     const userPk = user.publicKey;
     const vaultOwner = user.publicKey;
+    const shouldGoInBurnTa = false;
     const ixs = await this.lsdk.withdrawInstruction(
       mints,
       userPk,
       vaultOwner,
       withdrawAmounts,
-      finalAmounts
+      finalAmounts,
+      shouldGoInBurnTa
     );
 
     await this.txSender.createAndSendV0Tx({
