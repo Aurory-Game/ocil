@@ -1,0 +1,30 @@
+{
+  "name": "@aurory/lockersdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aurory-Game/ocil.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aurory-Game/ocil/issues"
+  },
+  "version": "0.1.0",
+  "scripts": {
+    "build:program": "anchor build",
+    "build": "cd .. && yarn --cwd package run build:program && cd package && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
+    "@metaplex-foundation/umi": "^0.9.1",
+    "@metaplex-foundation/umi-bundle-defaults": "^0.9.1",
+    "@metaplex-foundation/umi-web3js-adapters": "^0.9.1",
+    "@solana/spl-token": "^0.4.1",
+    "@solana/web3.js": "^1.91.1"
+  },
+  "type": "commonjs",
+  "main": "lib/package/index.js",
+  "types": "lib/package/index.d.ts",
+  "devDependencies": {
+    "typescript": "^5.4.2"
+  }
+}

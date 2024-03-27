@@ -3,9 +3,11 @@
     "types": ["mocha", "chai"],
     "typeRoots": ["./node_modules/@types"],
     "lib": ["es2015"],
+    "outDir": "./lib",
     "module": "commonjs",
     "target": "es6",
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "declaration": true,
   }
 }

@@ -176,7 +176,6 @@ export class LockerSDK {
         mint: fromWeb3JsPublicKey(mint),
         token: fromWeb3JsPublicKey(userTa),
       });
-      console.log("tokenRecordSender", tokenRecordSender);
       const [tokenRecordDestination] = findTokenRecordPda(this.umi, {
         mint: fromWeb3JsPublicKey(mint),
         token: fromWeb3JsPublicKey(vaultTa),
@@ -242,7 +241,7 @@ export class LockerSDK {
   async withdrawInstruction(
     unorderedMints: PublicKey[],
     userPk: PublicKey,
-    vaultOwner: PublicKey,
+    vaultOwners: PublicKey[],
     withdrawAmounts: anchor.BN[],
     finalAmounts: anchor.BN[]
   ): Promise<TransactionInstruction[]> {
@@ -283,6 +282,7 @@ export class LockerSDK {
         isWritable: true,
         isSigner: false,
       });
+      const vaultOwner = vaultOwners[index];
       const [vaultTa, vaultBump] = PublicKey.findProgramAddressSync(
         [mint.toBuffer(), vaultOwner.toBuffer()],
         this.program.programId
@@ -293,7 +293,7 @@ export class LockerSDK {
         isSigner: false,
       });
       remainingAccounts.push({
-        pubkey: userPk,
+        pubkey: vaultOwner,
         isWritable: true,
         isSigner: false,
       });
@@ -371,7 +371,7 @@ export class LockerSDK {
           locker: lockerPDA,
           admin: this.adminPk,
           userTaOwner: userPk,
-          vaultTaOwner: vaultOwner,
+          vaultTaOwner: userPk,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -397,7 +397,6 @@ export class LockerSDK {
     } catch (e) {}
 
     if (!exists) {
-      console.log(">> Initialize Locker");
       return (
         this.program.methods
           .initLockerV2()

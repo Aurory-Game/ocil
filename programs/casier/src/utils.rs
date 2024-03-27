@@ -671,7 +671,7 @@ pub fn perform_withdrawV2<'b, 'c, 'info>(
                 .spl_ata_program(pd.associated_token_program)
                 .amount(withdraw_amount)
                 .invoke_signed(
-                    &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+                    &[&[pd.mint.key().as_ref(), pd.vault_ta_owner.key().as_ref(), &[vault_bump]]]
                 )?;
         } else {
             anchor_spl::token::transfer(

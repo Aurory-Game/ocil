@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "./lib",
+    "skipLibCheck": true,
+  },
+  "extends": "../tsconfig.json",
+  "include": ["index.ts", "../target/idl/casier.json"],
+  "exclude": ["node_modules", "lib"]
+}

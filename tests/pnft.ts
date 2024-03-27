@@ -55,6 +55,7 @@ interface CustomContext extends Context {
   users: Keypair[];
   admin: Keypair;
   adminKeypair: UmiKeypair;
+  mintCount: number;
 }
 
 describe("pnft", function () {
@@ -76,7 +77,7 @@ describe("pnft", function () {
 
     await this.umi.rpc.airdrop(this.adminKeypair.publicKey, sol(100));
     this.users = await Promise.all(
-      Array.from({ length: 1 }).map(async () => {
+      Array.from({ length: 2 }).map(async () => {
         const kp = Keypair.generate();
         await this.umi.rpc.airdrop(fromWeb3JsPublicKey(kp.publicKey), sol(100));
         return kp;
@@ -88,20 +89,15 @@ describe("pnft", function () {
       toWeb3JsPublicKey(this.adminKeypair.publicKey),
       this.program.programId
     );
+    this.mintCount = 4;
     this.pnftMints = await Promise.all(
-      Array.from({ length: 2 }).map(async (v, i) => {
+      Array.from({ length: this.mintCount }).map(async (v, i) => {
         const mint = generateSigner(this.umi);
-        const user = this.users[i % this.users.length];
-        const userTa = getAssociatedTokenAddressSync(
-          toWeb3JsPublicKey(mint.publicKey),
-          user.publicKey
-        );
-        const [tokenRecordSender] = findTokenRecordPda(this.umi, {
-          mint: mint.publicKey,
-          token: fromWeb3JsPublicKey(userTa),
-        });
+        let user;
+        if (i < this.mintCount / 2) user = this.users[0];
+        else user = this.users[1];
 
-        const ind = await createProgrammableNft(this.umi, {
+        await createProgrammableNft(this.umi, {
           name: "My NFT",
           uri: "https://example.com/my-nft.json",
           authority: createSignerFromKeypair(this.umi, this.adminKeypair),
@@ -115,8 +111,6 @@ describe("pnft", function () {
           ],
           mint,
           tokenOwner: fromWeb3JsPublicKey(user.publicKey),
-          // token: fromWeb3JsPublicKey(userTa),
-          // tokenRecord: tokenRecordSender,
         }).sendAndConfirm(this.umi);
 
         return mint.publicKey;
@@ -165,9 +159,9 @@ describe("pnft", function () {
 
   it("Deposit pNFT", async function (this: CustomContext) {
     const user = this.users[0];
-    const mints: Array<PublicKey> = this.pnftMints.map((m) =>
-      toWeb3JsPublicKey(m)
-    );
+    const mints: Array<PublicKey> = this.pnftMints
+      .slice(0, this.mintCount / 2)
+      .map((m) => toWeb3JsPublicKey(m));
 
     const depositAmounts: Array<anchor.BN> = mints.map(
       (v, i) => new anchor.BN(1)
@@ -187,7 +181,7 @@ describe("pnft", function () {
       payer: user.publicKey,
       signers: [user, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
-      shouldLog: true,
+      shouldLog: false,
     });
     // const vaultAccount = await this.connection.getParsedAccountInfo(
     //   remainingAccounts[5].pubkey
@@ -202,18 +196,17 @@ describe("pnft", function () {
 
   it("Withdraw pNFT", async function (this: CustomContext) {
     const user = this.users[0];
-    const mints: Array<PublicKey> = this.pnftMints.map((m) =>
-      toWeb3JsPublicKey(m)
-    );
+    const mints: Array<PublicKey> = this.pnftMints
+      .slice(0, this.mintCount / 2)
+      .map((m) => toWeb3JsPublicKey(m));
     const withdrawAmounts = mints.map((v, i) => new anchor.BN(1));
     const finalAmounts = mints.map((v, i) => new anchor.BN(0));
     const userPk = user.publicKey;
-    const vaultOwner = user.publicKey;
-    const shouldGoInBurnTa = false;
+    const vaultOwners = mints.map((v, i) => user.publicKey);
     const ixs = await this.lsdk.withdrawInstruction(
       mints,
       userPk,
-      vaultOwner,
+      vaultOwners,
       withdrawAmounts,
       finalAmounts
     );
@@ -225,6 +218,57 @@ describe("pnft", function () {
       ],
       payer: userPk,
       signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+    });
+  });
+
+  it("Deposit & Withdraw with different owners", async function (this: CustomContext) {
+    const user = this.users[0];
+    const mints: Array<PublicKey> = this.pnftMints
+      .slice(0, this.mintCount / 2)
+      .map((m) => toWeb3JsPublicKey(m));
+
+    const depositAmounts: Array<anchor.BN> = mints.map(
+      (v, i) => new anchor.BN(1)
+    );
+    const shouldGoInBurnTa = false;
+    const ixs = await this.lsdk.depositInstruction(
+      mints,
+      user.publicKey,
+      depositAmounts,
+      shouldGoInBurnTa
+    );
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs,
+      ],
+      payer: user.publicKey,
+      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+
+    const user2 = this.users[1];
+    const withdrawAmounts = mints.map((v, i) => new anchor.BN(1));
+    const finalAmounts = mints.map((v, i) => new anchor.BN(0));
+    const userPk = user2.publicKey;
+    const vaultOwners = mints.map((v, i) => user.publicKey);
+    const ixs2 = await this.lsdk.withdrawInstruction(
+      mints,
+      userPk,
+      vaultOwners,
+      withdrawAmounts,
+      finalAmounts
+    );
+
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs2,
+      ],
+      payer: userPk,
+      signers: [user2, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
     });
   });
