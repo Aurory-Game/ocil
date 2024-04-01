@@ -80,7 +80,8 @@ export class TxSender {
         : this.log(log, ptx);
     }
     if (ptx?.meta?.err) {
-      throw new Error(ptx.meta.err.toString());
+      console.error(ptx.meta.err);
+      throw new Error("Transaction failed");
     } else {
       this.log(log, "   ✅ - Transaction executed successfully");
     }

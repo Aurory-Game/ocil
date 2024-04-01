@@ -445,7 +445,18 @@ describe("casier", () => {
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([user, payer])
-      .rpc();
+      .instruction();
+
+    await txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        tx,
+      ],
+      payer: user.publicKey,
+      signers: [user, payer],
+      // lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
 
     const burnTokenAccount = await provider.connection.getParsedAccountInfo(
       burnTa
@@ -763,7 +774,6 @@ describe("casier", () => {
         depositAmounts,
         Buffer.from(vaultBumps),
         Buffer.from(burnBumps),
-        false, // set to 'true' if you want to go to burn TA, otherwise 'false'
         0, // pnft count
         nonce
       )
@@ -869,7 +879,6 @@ describe("casier", () => {
     const withdrawInstruction = await program.methods
       .withdrawV2Batch(
         withdrawAmounts,
-        finalAmounts,
         Buffer.from(vaultBumps),
         Buffer.from(burnBumps),
         pnftCount,

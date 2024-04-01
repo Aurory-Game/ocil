@@ -166,12 +166,10 @@ describe("pnft", function () {
     const depositAmounts: Array<anchor.BN> = mints.map(
       (v, i) => new anchor.BN(1)
     );
-    const shouldGoInBurnTa = false;
     const ixs = await this.lsdk.depositInstruction(
       mints,
       user.publicKey,
-      depositAmounts,
-      shouldGoInBurnTa
+      depositAmounts
     );
     await this.txSender.createAndSendV0Tx({
       txInstructions: [
@@ -200,15 +198,13 @@ describe("pnft", function () {
       .slice(0, this.mintCount / 2)
       .map((m) => toWeb3JsPublicKey(m));
     const withdrawAmounts = mints.map((v, i) => new anchor.BN(1));
-    const finalAmounts = mints.map((v, i) => new anchor.BN(0));
     const userPk = user.publicKey;
     const vaultOwners = mints.map((v, i) => user.publicKey);
     const ixs = await this.lsdk.withdrawInstruction(
       mints,
       userPk,
       vaultOwners,
-      withdrawAmounts,
-      finalAmounts
+      withdrawAmounts
     );
 
     await this.txSender.createAndSendV0Tx({
@@ -219,6 +215,7 @@ describe("pnft", function () {
       payer: userPk,
       signers: [user, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
+      shouldLog: false,
     });
   });
 
@@ -231,12 +228,10 @@ describe("pnft", function () {
     const depositAmounts: Array<anchor.BN> = mints.map(
       (v, i) => new anchor.BN(1)
     );
-    const shouldGoInBurnTa = false;
     const ixs = await this.lsdk.depositInstruction(
       mints,
       user.publicKey,
-      depositAmounts,
-      shouldGoInBurnTa
+      depositAmounts
     );
     await this.txSender.createAndSendV0Tx({
       txInstructions: [
@@ -258,8 +253,7 @@ describe("pnft", function () {
       mints,
       userPk,
       vaultOwners,
-      withdrawAmounts,
-      finalAmounts
+      withdrawAmounts
     );
 
     await this.txSender.createAndSendV0Tx({
