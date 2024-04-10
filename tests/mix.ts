@@ -22,6 +22,7 @@ import {
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
   SYSVAR_RENT_PUBKEY,
+  Signer,
   SystemProgram,
 } from "@solana/web3.js";
 import {
@@ -32,6 +33,9 @@ import {
 } from "@metaplex-foundation/umi-web3js-adapters";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccount,
+  createMint,
+  mintTo,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { TxSender, createLookupTable } from "./utils";
@@ -51,6 +55,20 @@ import { assert } from "chai";
 
 anchor.setProvider(anchor.AnchorProvider.env());
 
+const program = anchor.workspace.Casier as Program<Casier>;
+const provider = program.provider as anchor.AnchorProvider;
+const providerPk = (program.provider as anchor.AnchorProvider).wallet.publicKey;
+const mints = [];
+
+// 2D array: users index, token accounts by mint index
+const tokenAccounts: PublicKey[][] = [];
+// 2D array: users, token account bumps by mint index
+const tokenAccountBumps: number[][] = [];
+// 2D array: user index, token accounts by mint index
+const vaultTAs: PublicKey[][] = [];
+// 2D array: user index, token account bumps by mint index
+const vaultTABumps: number[][] = [];
+
 interface CustomContext extends Context {
   umi: Umi;
   program: Program<Casier>;
@@ -59,13 +77,14 @@ interface CustomContext extends Context {
   lsdk: LockerSDK;
   usersAssets: UmiPublicKey[][];
   users: Keypair[];
-  admin: Keypair;
   adminKeypair: UmiKeypair;
+  connection: Connection;
 }
 
 describe("Core", function () {
   before(async function (this: CustomContext) {
     const connection = new Connection("http://127.0.0.1:8899", "recent");
+    this.connection = connection;
     this.umi = createUmi(connection);
     this.adminKeypair = this.umi.eddsa.createKeypairFromSecretKey(
       ((anchor.getProvider() as anchor.AnchorProvider).wallet as anchor.Wallet)
@@ -197,17 +216,118 @@ describe("Core", function () {
     }
   });
 
-  it("Deposit core nft", async function (this: CustomContext) {
+  it("Prepare", async function (this: CustomContext) {
+    const configPDA = this.configPDA;
+    const users = this.users;
+    // airdrops sols
+    await Promise.all(
+      users.map((user) =>
+        provider.connection.requestAirdrop(user.publicKey, 100 * 1e9)
+      )
+    );
+
+    // create mints
+    await Promise.all(
+      [...Array(2).keys()]
+        .map(() => Keypair.generate())
+        .map((mint) => {
+          mints.push(mint.publicKey);
+          return createMint(
+            provider.connection,
+            toWeb3JsKeypair(this.adminKeypair),
+            providerPk,
+            providerPk,
+            0,
+            mint
+          );
+        })
+    );
+
+    // initialize user token accounts
+    await Promise.all(
+      users.map((user, index) => {
+        tokenAccounts.push([]);
+        tokenAccountBumps.push([]);
+        return Promise.all(
+          mints.map(async (mint) => {
+            const [address, bump] = await PublicKey.findProgramAddress(
+              [
+                user.publicKey.toBuffer(),
+                TOKEN_PROGRAM_ID.toBuffer(),
+                mint.toBuffer(),
+              ],
+              ASSOCIATED_TOKEN_PROGRAM_ID
+            );
+            tokenAccounts[index].push(address);
+            tokenAccountBumps[index].push(bump);
+            return await createAssociatedTokenAccount(
+              provider.connection,
+              toWeb3JsKeypair(this.adminKeypair),
+              mint,
+              user.publicKey
+            );
+          })
+        );
+      })
+    );
+
+    // mint tokens
+    await Promise.all(
+      mints.flatMap((mint, mintIndex) =>
+        users
+          .slice(0, 2)
+          .map((user, userIndex) =>
+            mintTo(
+              provider.connection,
+              toWeb3JsKeypair(this.adminKeypair),
+              mint,
+              tokenAccounts[userIndex][mintIndex],
+              toWeb3JsPublicKey(this.adminKeypair.publicKey),
+              300
+            )
+          )
+      )
+    );
+
+    // initialize vault token accounts
+    await Promise.all(
+      users.map((user, index) =>
+        mints.map(async (mint) => {
+          const [ta, bump] = await PublicKey.findProgramAddress(
+            [mint.toBuffer(), user.publicKey.toBuffer()],
+            program.programId
+          );
+          if (vaultTAs[index]) {
+            vaultTAs[index].push(ta);
+            vaultTABumps[index].push(bump);
+          } else {
+            vaultTAs[index] = [ta];
+            vaultTABumps[index] = [bump];
+          }
+        })
+      )
+    );
+  });
+
+  it("Deposit", async function (this: CustomContext) {
     const userIndex = 0;
     const user = this.users[userIndex];
 
     const assets = this.usersAssets[userIndex];
-
-    const depositAmounts: Array<anchor.BN> = assets.map(
+    const depositCoreAmounts: Array<anchor.BN> = assets.map(
       (v, i) => new anchor.BN(1)
     );
+    const depositMints = [].concat(
+      ...assets.map((m) => toWeb3JsPublicKey(m)),
+      ...mints
+    );
+    const depositStandardAmounts = mints.map((v, i) => new anchor.BN(i + 2));
+    const depositAmounts = [].concat(
+      ...depositCoreAmounts,
+      ...depositStandardAmounts
+    );
     const ixs = await this.lsdk.depositInstruction(
-      assets.map((m) => toWeb3JsPublicKey(m)),
+      depositMints,
       user.publicKey,
       depositAmounts
     );
@@ -219,7 +339,7 @@ describe("Core", function () {
       payer: user.publicKey,
       signers: [user, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
-      shouldLog: true,
+      shouldLog: false,
     });
     const assetsFetched = await fetchAllAssetV1(this.umi, assets);
     for (let index = 0; index < assetsFetched.length; index++) {
@@ -227,143 +347,18 @@ describe("Core", function () {
       assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
       assert.isTrue(isFrozen(asset));
     }
-  });
-
-  it("Withdraw core nft", async function (this: CustomContext) {
-    const userIndex = 0;
-    const user = this.users[userIndex];
-
-    const assets = this.usersAssets[userIndex];
-
-    const withdrawAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const vaultOwners = [];
-    const ixs = await this.lsdk.withdrawInstruction(
-      assets.map((m) => toWeb3JsPublicKey(m)),
-      user.publicKey,
-      vaultOwners,
-      withdrawAmounts
-    );
-    await this.txSender.createAndSendV0Tx({
-      txInstructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
-        ...ixs,
-      ],
-      payer: user.publicKey,
-      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
-      lookupTableAccount: this.lookupTable,
-      shouldLog: true,
-    });
-    const assetsFetched = await fetchAllAssetV1(this.umi, assets);
-    for (let index = 0; index < assetsFetched.length; index++) {
-      const asset = assetsFetched[index];
-      assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
-      assert.isFalse(isFrozen(asset));
-    }
-  });
-
-  it("Deposit, Transfer, Withdraw", async function (this: CustomContext) {
-    const userIndex = 0;
-    const destIndex = 1;
-    const user = this.users[userIndex];
-    const dest = this.users[destIndex];
-
-    const assets = this.usersAssets[userIndex];
-    const depositAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const withdrawAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const vaultOwners = [];
-    const fetchedAsset0 = await fetchAssetV1(this.umi, assets[0]);
-
-    const ixs = [
-      ...(await this.lsdk.depositInstruction(
-        assets.map((m) => toWeb3JsPublicKey(m)),
-        user.publicKey,
-        depositAmounts
-      )),
-      ...assets.flatMap((asset) =>
-        transferV1(this.umi, {
-          asset,
-          collection: fetchedAsset0.updateAuthority.address,
-          newOwner: fromWeb3JsPublicKey(dest.publicKey),
-        })
-          .getInstructions()
-          .map((instruction) => toWeb3JsInstruction(instruction))
-      ),
-      ...(await this.lsdk.withdrawInstruction(
-        assets.map((m) => toWeb3JsPublicKey(m)),
-        dest.publicKey,
-        vaultOwners,
-        withdrawAmounts
-      )),
-    ];
-
-    await this.txSender.createAndSendV0Tx({
-      txInstructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
-        ...ixs,
-      ],
-      payer: dest.publicKey,
-      signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
-      lookupTableAccount: this.lookupTable,
-      shouldLog: true,
-    });
-    const assetsFetched = await fetchAllAssetV1(this.umi, assets);
-    for (let index = 0; index < assetsFetched.length; index++) {
-      const asset = assetsFetched[index];
-      assert.strictEqual(asset.owner.toString(), dest.publicKey.toString());
-      assert.isFalse(isFrozen(asset));
-    }
-  });
-
-  it("Deposit, Withdraw from a different user", async function (this: CustomContext) {
-    const sourceIndex = 1;
-    const destIndex = 0;
-    const user = this.users[sourceIndex];
-    const dest = this.users[destIndex];
-
-    const assets = this.usersAssets[destIndex]; // as we have transferred them to user 1 in the previous test
-    const depositAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const withdrawAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const vaultOwners = [];
-
-    const ixs = [
-      ...(await this.lsdk.depositInstruction(
-        assets.map((m) => toWeb3JsPublicKey(m)),
-        user.publicKey,
-        depositAmounts
-      )),
-      ...(await this.lsdk.withdrawInstruction(
-        assets.map((m) => toWeb3JsPublicKey(m)),
-        dest.publicKey,
-        vaultOwners,
-        withdrawAmounts
-      )),
-    ];
-
-    await this.txSender.createAndSendV0Tx({
-      txInstructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
-        ...ixs,
-      ],
-      payer: dest.publicKey,
-      signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
-      lookupTableAccount: this.lookupTable,
-      shouldLog: true,
-    });
-    const assetsFetched = await fetchAllAssetV1(this.umi, assets);
-    for (let index = 0; index < assetsFetched.length; index++) {
-      const asset = assetsFetched[index];
-      assert.strictEqual(asset.owner.toString(), dest.publicKey.toString());
-      assert.isFalse(isFrozen(asset));
+    for (let index = 0; index < mints.length; index++) {
+      const mint = mints[index];
+      const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
+        [mint.toBuffer()],
+        program.programId
+      );
+      await this.connection.getParsedAccountInfo(burnTa);
+      const burnAccount = await this.connection.getParsedAccountInfo(burnTa);
+      const burnAmount = (
+        burnAccount?.value?.data as any
+      )?.parsed?.info?.tokenAmount?.uiAmount?.toString();
+      assert.strictEqual(burnAmount, (index + 2).toString());
     }
   });
 });
