@@ -1,19 +1,19 @@
 pub mod state;
 pub mod utils;
 
-use crate::state::{ ErrorCode, * };
+use crate::state::{ErrorCode, *};
 use crate::utils::*;
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{ pubkey::Pubkey, rent::Rent };
+use anchor_lang::solana_program::{pubkey::Pubkey, rent::Rent};
 use anchor_spl;
-use anchor_spl::token::{ Mint, TokenAccount };
+use anchor_spl::token::{Mint, TokenAccount};
 // declare_id!("CAsieqooSrgVxhgWRwh21gyjq7Rmuhmo4qTW9XzXtAvW");
 declare_id!("FLoc9nBwGb2ayzVzb5GC9NttuPY3CxMhd4KDnApr79Ab");
 
 #[program]
 pub mod casier {
     use anchor_lang::solana_program::system_program;
-    use anchor_spl::{ associated_token::AssociatedToken, token::Token };
+    use anchor_spl::{associated_token::AssociatedToken, token::Token};
 
     use super::*;
 
@@ -53,7 +53,7 @@ pub mod casier {
         deposit_amount: u64,
         before_amount: u64,
         burn_bump: u8,
-        should_go_in_burn_ta: bool
+        should_go_in_burn_ta: bool,
     ) -> Result<()> {
         perform_deposit(
             PerformDeposit {
@@ -73,7 +73,7 @@ pub mod casier {
             deposit_amount,
             before_amount,
             burn_bump,
-            should_go_in_burn_ta
+            should_go_in_burn_ta,
         )?;
         Ok(())
     }
@@ -83,9 +83,8 @@ pub mod casier {
         deposit_amounts: Vec<u64>,
         vault_bumps: Vec<u8>,
         burn_bumps: Vec<u8>,
-        should_go_in_burn_ta: bool,
         pnft_count: u8,
-        nonce: u64
+        nonce: u64,
     ) -> Result<()> {
         const PNFT_CHUNK_SIZE: u8 = 8;
         const NORMAL_CHUNK_SIZE: u8 = 4;
@@ -146,7 +145,6 @@ pub mod casier {
                 vault_bumps[mint_index],
                 deposit_amounts[mint_index],
                 burn_bumps[mint_index],
-                should_go_in_burn_ta
             )?;
             index += if pnft_ra_length == 0 || (index as u8) > pnft_ra_length {
                 NORMAL_CHUNK_SIZE as usize
@@ -164,7 +162,7 @@ pub mod casier {
         burn_bump: u8,
         withdraw_amount: u64,
         before_amount: u64,
-        final_amount: u64
+        final_amount: u64,
     ) -> Result<()> {
         let pd = PerformWithdraw {
             config: &mut ctx.accounts.config,
@@ -181,17 +179,23 @@ pub mod casier {
             associated_token_program: &ctx.accounts.associated_token_program,
             rent: &ctx.accounts.rent,
         };
-        perform_withdraw(pd, withdraw_amount, before_amount, final_amount, vault_bump, burn_bump)
+        perform_withdraw(
+            pd,
+            withdraw_amount,
+            before_amount,
+            final_amount,
+            vault_bump,
+            burn_bump,
+        )
     }
 
     pub fn withdraw_v2_batch<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, WithdrawV2Batch<'info>>,
         withdraw_amounts: Vec<u64>,
-        final_amounts: Vec<u64>,
         vault_bumps: Vec<u8>,
         burn_bumps: Vec<u8>,
         pnft_count: u8,
-        nonce: u64
+        nonce: u64,
     ) -> Result<()> {
         const PNFT_CHUNK_SIZE: u8 = 9;
         const NORMAL_CHUNK_SIZE: u8 = 5;
@@ -213,10 +217,8 @@ pub mod casier {
         let user_ta_owner: &'b Signer<'info> = &accounts.user_ta_owner;
         let system_program: &'b Program<'info, System> = &accounts.system_program;
         let token_program: &'b Program<'info, Token> = &accounts.token_program;
-        let associated_token_program: &'b Program<
-            'info,
-            AssociatedToken
-        > = &accounts.associated_token_program;
+        let associated_token_program: &'b Program<'info, AssociatedToken> =
+            &accounts.associated_token_program;
         let rent: &'b Sysvar<'info, Rent> = &accounts.rent;
         let remaining_accounts: &'c [AccountInfo<'info>] = ctx.remaining_accounts;
         let token_metadata_program = &remaining_accounts[0];
@@ -254,9 +256,8 @@ pub mod casier {
             perform_withdrawV2(
                 pd,
                 withdraw_amounts[mint_index],
-                final_amounts[mint_index],
                 vault_bumps[mint_index],
-                burn_bumps[mint_index]
+                burn_bumps[mint_index],
             )?;
 
             index += if pnft_ra_length == 0 || (index as u8) > pnft_ra_length {
@@ -266,6 +267,18 @@ pub mod casier {
             };
             mint_index += 1;
         }
+        Ok(())
+    }
+
+    pub fn inc_nonce<'a, 'b, 'c, 'info>(
+        ctx: Context<'a, 'b, 'c, 'info, IncNonce<'info>>,
+        nonce: u64,
+    ) -> Result<()> {
+        ctx.accounts.locker.space;
+        if ctx.accounts.locker.space != nonce {
+            return Err(error!(ErrorCode::InvalidBeforeState));
+        }
+        ctx.accounts.locker.space += 1;
         Ok(())
     }
 }

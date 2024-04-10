@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{ associated_token::AssociatedToken, token::{ Mint, Token, TokenAccount } };
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{Mint, Token, TokenAccount},
+};
 #[derive(Accounts)]
 pub struct Initialize {}
 
@@ -213,6 +216,16 @@ pub struct WithdrawV2Batch<'info> {
 }
 
 #[derive(Accounts)]
+pub struct IncNonce<'info> {
+    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
+    pub config: Account<'info, Config>,
+    #[account(mut)]
+    pub locker: Account<'info, Locker>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct WithdrawAndBurn<'info> {
     #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
     pub config: Account<'info, Config>,
@@ -313,15 +326,14 @@ pub struct Locker {
 
 impl Locker {
     pub const MAX_ENTRIES: usize = 0; // Assuming N is defined somewhere
-    pub const MAX_SIZE: usize =
-        8 + // Discriminator
-        32 + // Owner
-        4 +
-        32 * Self::MAX_ENTRIES + // Mints
-        4 +
-        8 * Self::MAX_ENTRIES + // Amounts
-        1 + // Version
-        8; // Space
+    pub const MAX_SIZE: usize = 8 + // Discriminator
+    32 + // Owner
+    4 +
+    32 * Self::MAX_ENTRIES + // Mints
+    4 +
+    8 * Self::MAX_ENTRIES + // Amounts
+    1 + // Version
+    8; // Space
 }
 
 #[error_code]
