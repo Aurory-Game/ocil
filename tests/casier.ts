@@ -1065,26 +1065,3 @@ async function afterChecksV2(
     assert.isNull(vaultAccount.value);
   }
 }
-
-async function getTransaction(
-  signature: string,
-  connection: Connection,
-  log: boolean = false
-): Promise<ParsedTransactionWithMeta> {
-  let ptx = null;
-  while (ptx === null) {
-    ptx = await connection.getParsedTransaction(signature, {
-      maxSupportedTransactionVersion: 0,
-      commitment: "confirmed",
-    });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  if (log) {
-    ptx?.meta?.logMessages
-      ? ptx?.meta?.logMessages?.forEach((log) => {
-          console.log(log);
-        })
-      : console.log(ptx);
-  }
-  return ptx;
-}

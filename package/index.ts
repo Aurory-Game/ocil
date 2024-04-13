@@ -259,12 +259,11 @@ export class LockerSDK {
       ixs.push(...coreIxs);
     }
 
-    const nonCoreCount = orderedMints.length - coreCount;
     const standardAndPnftIxs = await this.depositStandardAndPnftInstruction(
-      orderedMints.slice(nonCoreCount),
+      orderedMints.slice(coreCount),
       pnftCount,
       userPk,
-      depositAmounts.slice(nonCoreCount),
+      depositAmounts.slice(coreCount),
       nonce,
       lockerPDA
     );
@@ -456,7 +455,7 @@ export class LockerSDK {
       orderedMints.slice(coreCount),
       pnftCount,
       userPk,
-      withdrawAmounts,
+      withdrawAmounts.slice(coreCount),
       nonce,
       lockerPDA,
       vaultOwners
@@ -531,40 +530,42 @@ export class LockerSDK {
         isSigner: false,
       });
       vaultBumps.push(vaultBump);
-      const [metadataPda] = findMetadataPda(this.umi, {
-        mint: fromWeb3JsPublicKey(mint),
-      });
-      remainingAccounts.push({
-        pubkey: toWeb3JsPublicKey(metadataPda),
-        isWritable: true,
-        isSigner: false,
-      });
-      const [tokenRecordSender] = findTokenRecordPda(this.umi, {
-        mint: fromWeb3JsPublicKey(mint),
-        token: fromWeb3JsPublicKey(burnTa),
-      });
-      const [tokenRecordDestination] = findTokenRecordPda(this.umi, {
-        mint: fromWeb3JsPublicKey(mint),
-        token: fromWeb3JsPublicKey(userTa),
-      });
-      remainingAccounts.push({
-        pubkey: toWeb3JsPublicKey(tokenRecordSender),
-        isWritable: true,
-        isSigner: false,
-      });
-      remainingAccounts.push({
-        pubkey: toWeb3JsPublicKey(tokenRecordDestination),
-        isWritable: true,
-        isSigner: false,
-      });
-      const [editionPk] = await findMasterEditionPda(this.umi, {
-        mint: fromWeb3JsPublicKey(mint),
-      });
-      remainingAccounts.push({
-        pubkey: toWeb3JsPublicKey(editionPk),
-        isWritable: false,
-        isSigner: false,
-      });
+      if (index < pnftCount) {
+        const [metadataPda] = findMetadataPda(this.umi, {
+          mint: fromWeb3JsPublicKey(mint),
+        });
+        remainingAccounts.push({
+          pubkey: toWeb3JsPublicKey(metadataPda),
+          isWritable: true,
+          isSigner: false,
+        });
+        const [tokenRecordSender] = findTokenRecordPda(this.umi, {
+          mint: fromWeb3JsPublicKey(mint),
+          token: fromWeb3JsPublicKey(burnTa),
+        });
+        const [tokenRecordDestination] = findTokenRecordPda(this.umi, {
+          mint: fromWeb3JsPublicKey(mint),
+          token: fromWeb3JsPublicKey(userTa),
+        });
+        remainingAccounts.push({
+          pubkey: toWeb3JsPublicKey(tokenRecordSender),
+          isWritable: true,
+          isSigner: false,
+        });
+        remainingAccounts.push({
+          pubkey: toWeb3JsPublicKey(tokenRecordDestination),
+          isWritable: true,
+          isSigner: false,
+        });
+        const [editionPk] = await findMasterEditionPda(this.umi, {
+          mint: fromWeb3JsPublicKey(mint),
+        });
+        remainingAccounts.push({
+          pubkey: toWeb3JsPublicKey(editionPk),
+          isWritable: false,
+          isSigner: false,
+        });
+      }
     }
 
     ixs.push(

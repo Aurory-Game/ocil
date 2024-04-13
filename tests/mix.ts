@@ -22,14 +22,12 @@ import {
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
   SYSVAR_RENT_PUBKEY,
-  Signer,
   SystemProgram,
 } from "@solana/web3.js";
 import {
   toWeb3JsPublicKey,
   fromWeb3JsPublicKey,
   toWeb3JsKeypair,
-  toWeb3JsInstruction,
 } from "@metaplex-foundation/umi-web3js-adapters";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -42,9 +40,7 @@ import { TxSender, createLookupTable } from "./utils";
 import { LockerSDK } from "../package/index";
 import {
   createCollectionV1,
-  fetchAssetV1,
   mplCore,
-  transferV1,
   createV1,
   pluginAuthorityPair,
   ruleSet,
@@ -359,6 +355,55 @@ describe("Core", function () {
         burnAccount?.value?.data as any
       )?.parsed?.info?.tokenAmount?.uiAmount?.toString();
       assert.strictEqual(burnAmount, (index + 2).toString());
+    }
+  });
+
+  it("Withdraw", async function (this: CustomContext) {
+    const userIndex = 0;
+    const user = this.users[userIndex];
+
+    const assets = this.usersAssets[userIndex];
+    const withdraw: Array<anchor.BN> = assets.map((v, i) => new anchor.BN(1));
+    const withdrawMints = [].concat(
+      ...assets.map((m) => toWeb3JsPublicKey(m)),
+      ...mints
+    );
+    const withdrawStandardAmounts = mints.map((v, i) => new anchor.BN(i + 2));
+    const withdrawAmounts = [].concat(...withdraw, ...withdrawStandardAmounts);
+    const vaultOwners = mints.map(() => user.publicKey);
+    const ixs = await this.lsdk.withdrawInstruction(
+      withdrawMints,
+      user.publicKey,
+      vaultOwners,
+      withdrawAmounts
+    );
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs,
+      ],
+      payer: user.publicKey,
+      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+    const assetsFetched = await fetchAllAssetV1(this.umi, assets);
+    for (let index = 0; index < assetsFetched.length; index++) {
+      const asset = assetsFetched[index];
+      assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
+      assert.isFalse(isFrozen(asset));
+    }
+    for (let index = 0; index < mints.length; index++) {
+      const mint = mints[index];
+      const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
+        [mint.toBuffer()],
+        program.programId
+      );
+      await this.connection.getParsedAccountInfo(burnTa);
+      const burnAccount = await this.connection.getParsedAccountInfo(burnTa);
+      const burnAmount = (burnAccount?.value?.data as any)?.parsed?.info
+        ?.tokenAmount?.uiAmount;
+      assert.strictEqual(burnAmount, 0);
     }
   });
 });

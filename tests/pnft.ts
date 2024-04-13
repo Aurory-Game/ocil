@@ -181,15 +181,6 @@ describe("pnft", function () {
       lookupTableAccount: this.lookupTable,
       shouldLog: false,
     });
-    // const vaultAccount = await this.connection.getParsedAccountInfo(
-    //   remainingAccounts[5].pubkey
-    // );
-    // console.log(remainingAccounts[5].pubkey.toString());
-    // console.log(vaultAccount.value.data?.parsed);
-    // const lockerAccount = await this.program.account.locker.fetch(
-    //   this.lockerPDA
-    // );
-    // console.log(lockerAccount);
   });
 
   it("Withdraw pNFT", async function (this: CustomContext) {

@@ -219,7 +219,7 @@ describe("Core", function () {
       payer: user.publicKey,
       signers: [user, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
-      shouldLog: true,
+      shouldLog: false,
     });
     const assetsFetched = await fetchAllAssetV1(this.umi, assets);
     for (let index = 0; index < assetsFetched.length; index++) {
@@ -253,7 +253,7 @@ describe("Core", function () {
       payer: user.publicKey,
       signers: [user, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
-      shouldLog: true,
+      shouldLog: false,
     });
     const assetsFetched = await fetchAllAssetV1(this.umi, assets);
     for (let index = 0; index < assetsFetched.length; index++) {
@@ -310,7 +310,7 @@ describe("Core", function () {
       payer: dest.publicKey,
       signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
-      shouldLog: true,
+      shouldLog: false,
     });
     const assetsFetched = await fetchAllAssetV1(this.umi, assets);
     for (let index = 0; index < assetsFetched.length; index++) {
@@ -357,7 +357,7 @@ describe("Core", function () {
       payer: dest.publicKey,
       signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
-      shouldLog: true,
+      shouldLog: false,
     });
     const assetsFetched = await fetchAllAssetV1(this.umi, assets);
     for (let index = 0; index < assetsFetched.length; index++) {
