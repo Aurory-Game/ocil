@@ -77,7 +77,7 @@ interface CustomContext extends Context {
   connection: Connection;
 }
 
-describe("Core", function () {
+describe("Mix", function () {
   before(async function (this: CustomContext) {
     const connection = new Connection("http://127.0.0.1:8899", "recent");
     this.connection = connection;
@@ -104,10 +104,6 @@ describe("Core", function () {
             frozen: false,
           },
         }),
-        pluginAuthorityPair({
-          type: "PermanentTransferDelegate",
-        }),
-
         pluginAuthorityPair({
           type: "PermanentBurnDelegate",
         }),
@@ -157,6 +153,9 @@ describe("Core", function () {
                 // authority: pluginAuthority("Address", {
                 //   address: this.adminKeypair.publicKey,
                 // }),
+              }),
+              pluginAuthorityPair({
+                type: "TransferDelegate",
               }),
             ],
             owner: fromWeb3JsPublicKey(user.publicKey),

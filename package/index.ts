@@ -26,9 +26,7 @@ import {
   findTokenRecordPda,
   findMasterEditionPda,
   mplTokenMetadata,
-  fetchAllMetadata,
   TokenStandard,
-  safeFetchAllMetadata,
   safeFetchMetadata,
 } from "@metaplex-foundation/mpl-token-metadata";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
@@ -50,6 +48,10 @@ import {
   transferV1,
   updatePluginV1,
   createPlugin,
+  addressPluginAuthority,
+  PluginType,
+  revokePluginAuthorityV1,
+  approvePluginAuthorityV1,
 } from "@metaplex-foundation/mpl-core";
 
 export class LockerSDK {
@@ -106,7 +108,6 @@ export class LockerSDK {
         return this.connection.getAccountInfo(mint);
       })
     );
-    const metadataPdas: { pda: UmiPublicKey; index: number }[] = [];
     const orderedMintsWithoutCore: PublicKey[] = [];
     const coreAsset = [];
     const orderedAmounts: anchor.BN[] = [];
@@ -159,7 +160,8 @@ export class LockerSDK {
   }
 
   async depositCoreInstruction(
-    coreMints: UmiPublicKey[]
+    coreMints: UmiPublicKey[],
+    owner: UmiPublicKey
   ): Promise<TransactionInstruction[]> {
     const assets = await fetchAllAssetV1(this.umi, coreMints);
     const ixs: TransactionInstruction[] = [];
@@ -190,7 +192,7 @@ export class LockerSDK {
         collections[asset.updateAuthority.address.toString()] = collection;
       }
       await fetchCollectionV1(this.umi, asset.updateAuthority.address);
-      const currentIxs = updatePluginV1(this.umi, {
+      const freezeIx = updatePluginV1(this.umi, {
         asset: asset.publicKey,
         plugin: createPlugin({
           type: "PermanentFreezeDelegate",
@@ -202,7 +204,17 @@ export class LockerSDK {
       })
         .getInstructions()
         .map((instruction) => toWeb3JsInstruction(instruction));
-      ixs.push(...currentIxs);
+      ixs.push(...freezeIx);
+      const transferIx = approvePluginAuthorityV1(this.umi, {
+        asset: asset.publicKey,
+        collection,
+        pluginType: PluginType.TransferDelegate,
+        authority: createNoopSigner(owner),
+        newAuthority: addressPluginAuthority(fromWeb3JsPublicKey(this.adminPk)),
+      })
+        .getInstructions()
+        .map((instruction) => toWeb3JsInstruction(instruction));
+      ixs.push(...transferIx);
     }
     return ixs;
   }
@@ -239,7 +251,8 @@ export class LockerSDK {
 
     if (coreCount > 0) {
       const coreIxs = await this.depositCoreInstruction(
-        orderedMints.slice(0, coreCount).map((m) => fromWeb3JsPublicKey(m))
+        orderedMints.slice(0, coreCount).map((m) => fromWeb3JsPublicKey(m)),
+        fromWeb3JsPublicKey(userPk)
       );
       const onlyCore = coreCount === orderedMints.length;
       if (onlyCore) {
@@ -431,7 +444,7 @@ export class LockerSDK {
     if (coreCount > 0) {
       const coreIxs = await this.withdrawCoreInstruction(
         orderedMints.slice(0, coreCount).map((m) => fromWeb3JsPublicKey(m)),
-        userPk
+        fromWeb3JsPublicKey(userPk)
       );
       const onlyCore = coreCount === orderedMints.length;
       if (onlyCore) {
@@ -596,7 +609,7 @@ export class LockerSDK {
 
   async withdrawCoreInstruction(
     mints: UmiPublicKey[],
-    userPk: PublicKey
+    userPk: UmiPublicKey
   ): Promise<TransactionInstruction[]> {
     const ixs: TransactionInstruction[] = [];
     const assets = await fetchAllAssetV1(this.umi, mints);
@@ -643,17 +656,30 @@ export class LockerSDK {
       );
 
       if (asset.owner.toString() != userPk.toString()) {
+        // transfer delegate is automatically removed
         ixs.push(
           ...transferV1(this.umi, {
             asset: asset.publicKey,
             collection,
-            newOwner: fromWeb3JsPublicKey(userPk),
+            newOwner: userPk,
           })
             .getInstructions()
             .map((instruction) => toWeb3JsInstruction(instruction))
         );
+      } else {
+        const transferIx = revokePluginAuthorityV1(this.umi, {
+          asset: asset.publicKey,
+          pluginType: PluginType.TransferDelegate,
+          collection,
+          // authority: createNoopSigner(userPk),
+          authority: createNoopSigner(fromWeb3JsPublicKey(this.adminPk)),
+        })
+          .getInstructions()
+          .map((instruction) => toWeb3JsInstruction(instruction));
+        ixs.push(...transferIx);
       }
     }
+
     return ixs;
   }
 

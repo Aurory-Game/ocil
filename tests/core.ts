@@ -28,7 +28,6 @@ import {
   toWeb3JsPublicKey,
   fromWeb3JsPublicKey,
   toWeb3JsKeypair,
-  toWeb3JsInstruction,
 } from "@metaplex-foundation/umi-web3js-adapters";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -38,9 +37,7 @@ import { TxSender, createLookupTable } from "./utils";
 import { LockerSDK } from "../package/index";
 import {
   createCollectionV1,
-  fetchAssetV1,
   mplCore,
-  transferV1,
   createV1,
   pluginAuthorityPair,
   ruleSet,
@@ -89,10 +86,9 @@ describe("Core", function () {
             frozen: false,
           },
         }),
-        pluginAuthorityPair({
-          type: "PermanentTransferDelegate",
-        }),
-
+        // pluginAuthorityPair({
+        //   type: "PermanentTransferDelegate",
+        // }),
         pluginAuthorityPair({
           type: "PermanentBurnDelegate",
         }),
@@ -142,6 +138,9 @@ describe("Core", function () {
                 // authority: pluginAuthority("Address", {
                 //   address: this.adminKeypair.publicKey,
                 // }),
+              }),
+              pluginAuthorityPair({
+                type: "TransferDelegate",
               }),
             ],
             owner: fromWeb3JsPublicKey(user.publicKey),
@@ -265,47 +264,58 @@ describe("Core", function () {
 
   it("Deposit, Transfer, Withdraw", async function (this: CustomContext) {
     const userIndex = 0;
-    const destIndex = 1;
     const user = this.users[userIndex];
-    const dest = this.users[destIndex];
 
     const assets = this.usersAssets[userIndex];
+
     const depositAmounts: Array<anchor.BN> = assets.map(
       (v, i) => new anchor.BN(1)
     );
+    const destIndex = 1;
+    const dest = this.users[destIndex];
+
     const withdrawAmounts: Array<anchor.BN> = assets.map(
       (v, i) => new anchor.BN(1)
     );
     const vaultOwners = [];
-    const fetchedAsset0 = await fetchAssetV1(this.umi, assets[0]);
 
-    const ixs = [
-      ...(await this.lsdk.depositInstruction(
-        assets.map((m) => toWeb3JsPublicKey(m)),
-        user.publicKey,
-        depositAmounts
-      )),
-      ...assets.flatMap((asset) =>
-        transferV1(this.umi, {
-          asset,
-          collection: fetchedAsset0.updateAuthority.address,
-          newOwner: fromWeb3JsPublicKey(dest.publicKey),
-        })
-          .getInstructions()
-          .map((instruction) => toWeb3JsInstruction(instruction))
-      ),
-      ...(await this.lsdk.withdrawInstruction(
-        assets.map((m) => toWeb3JsPublicKey(m)),
-        dest.publicKey,
-        vaultOwners,
-        withdrawAmounts
-      )),
-    ];
-
+    const ixs = await this.lsdk.depositInstruction(
+      assets.map((m) => toWeb3JsPublicKey(m)),
+      user.publicKey,
+      depositAmounts
+    );
     await this.txSender.createAndSendV0Tx({
       txInstructions: [
         ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
         ...ixs,
+      ],
+      payer: user.publicKey,
+      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+    const assetsFetched0 = await fetchAllAssetV1(this.umi, assets);
+    for (let index = 0; index < assetsFetched0.length; index++) {
+      const asset = assetsFetched0[index];
+      assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
+      assert.strictEqual(
+        asset.transferDelegate.authority.address,
+        this.adminKeypair.publicKey
+      );
+      assert.isTrue(isFrozen(asset));
+    }
+
+    const ixs2 = await this.lsdk.withdrawInstruction(
+      assets.map((m) => toWeb3JsPublicKey(m)),
+      dest.publicKey,
+      vaultOwners,
+      withdrawAmounts
+    );
+
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs2,
       ],
       payer: dest.publicKey,
       signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
@@ -315,6 +325,7 @@ describe("Core", function () {
     const assetsFetched = await fetchAllAssetV1(this.umi, assets);
     for (let index = 0; index < assetsFetched.length; index++) {
       const asset = assetsFetched[index];
+      assert.strictEqual(asset.transferDelegate.authority.type, "Owner");
       assert.strictEqual(asset.owner.toString(), dest.publicKey.toString());
       assert.isFalse(isFrozen(asset));
     }
@@ -335,24 +346,32 @@ describe("Core", function () {
     );
     const vaultOwners = [];
 
-    const ixs = [
-      ...(await this.lsdk.depositInstruction(
-        assets.map((m) => toWeb3JsPublicKey(m)),
-        user.publicKey,
-        depositAmounts
-      )),
-      ...(await this.lsdk.withdrawInstruction(
-        assets.map((m) => toWeb3JsPublicKey(m)),
-        dest.publicKey,
-        vaultOwners,
-        withdrawAmounts
-      )),
-    ];
+    const ixs = await this.lsdk.depositInstruction(
+      assets.map((m) => toWeb3JsPublicKey(m)),
+      user.publicKey,
+      depositAmounts
+    );
 
     await this.txSender.createAndSendV0Tx({
       txInstructions: [
         ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
         ...ixs,
+      ],
+      payer: user.publicKey,
+      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+    const ixs2 = await this.lsdk.withdrawInstruction(
+      assets.map((m) => toWeb3JsPublicKey(m)),
+      dest.publicKey,
+      vaultOwners,
+      withdrawAmounts
+    );
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs2,
       ],
       payer: dest.publicKey,
       signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
