@@ -7,10 +7,10 @@
   "bugs": {
     "url": "https://github.com/Aurory-Game/ocil/issues"
   },
-  "version": "0.1.0",
+  "version": "1.0.0",
   "scripts": {
     "build:program": "anchor build",
-    "build": "cd .. && yarn --cwd package run build:program && cd package && tsc -p tsconfig.build.json"
+    "build": "rm -rf lib && cd .. && yarn --cwd package run build:program && cd package && tsc -p tsconfig.build.json"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",
