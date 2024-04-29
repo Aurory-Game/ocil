@@ -1,19 +1,19 @@
-use crate::state::{ ErrorCode, * };
-use crate::state::{ Locker, WithdrawType };
+use crate::state::{ErrorCode, *};
+use crate::state::{Locker, WithdrawType};
 use anchor_lang::accounts::account_info;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{
     entrypoint::ProgramResult,
-    program::{ invoke, invoke_signed },
+    program::{invoke, invoke_signed},
     pubkey::Pubkey,
     rent::Rent,
     system_instruction,
 };
 use anchor_spl;
-use anchor_spl::token::{ TokenAccount, ID as TokenProgramID };
+use anchor_spl::token::{TokenAccount, ID as TokenProgramID};
 use mpl_token_metadata::{
     instructions::TransferV1CpiBuilder,
-    types::{ Key as NftStandardKey, TokenStandard },
+    types::{Key as NftStandardKey, TokenStandard},
 };
 
 pub fn create_pda_account<'a>(
@@ -22,7 +22,7 @@ pub fn create_pda_account<'a>(
     owner: &Pubkey,
     system_program: &AccountInfo<'a>,
     new_pda_account: &AccountInfo<'a>,
-    new_pda_signer_seeds: &[&[u8]]
+    new_pda_signer_seeds: &[&[u8]],
 ) -> ProgramResult {
     let rent = Rent::get()?;
 
@@ -35,20 +35,24 @@ pub fn create_pda_account<'a>(
         if required_lamports > 0 {
             invoke(
                 &system_instruction::transfer(payer.key, new_pda_account.key, required_lamports),
-                &[payer.clone(), new_pda_account.clone(), system_program.clone()]
+                &[
+                    payer.clone(),
+                    new_pda_account.clone(),
+                    system_program.clone(),
+                ],
             )?;
         }
 
         invoke_signed(
             &system_instruction::allocate(new_pda_account.key, space as u64),
             &[new_pda_account.clone(), system_program.clone()],
-            &[new_pda_signer_seeds]
+            &[new_pda_signer_seeds],
         )?;
 
         invoke_signed(
             &system_instruction::assign(new_pda_account.key, owner),
             &[new_pda_account.clone(), system_program.clone()],
-            &[new_pda_signer_seeds]
+            &[new_pda_signer_seeds],
         )
     } else {
         invoke_signed(
@@ -57,10 +61,14 @@ pub fn create_pda_account<'a>(
                 new_pda_account.key,
                 rent.minimum_balance(space).max(1),
                 space as u64,
-                owner
+                owner,
             ),
-            &[payer.clone(), new_pda_account.clone(), system_program.clone()],
-            &[new_pda_signer_seeds]
+            &[
+                payer.clone(),
+                new_pda_account.clone(),
+                system_program.clone(),
+            ],
+            &[new_pda_signer_seeds],
         )
     }
 }
@@ -102,7 +110,7 @@ pub fn spl_init_token_account(params: InitializeTokenAccountParams<'_, '_>) -> R
         token_program.key,
         &system_program,
         &account,
-        account_signer_seeds
+        account_signer_seeds,
     )?;
 
     let result = invoke(
@@ -110,9 +118,9 @@ pub fn spl_init_token_account(params: InitializeTokenAccountParams<'_, '_>) -> R
             token_program.key,
             account.key,
             mint.key,
-            owner.key
+            owner.key,
         )?,
-        &[account, mint, owner, token_program, rent]
+        &[account, mint, owner, token_program, rent],
     );
     return result.map_err(|_| ErrorCode::TransferFail.into());
 }
@@ -134,9 +142,9 @@ pub fn spl_init_token_account2(params: InitializeTokenAccountParams<'_, '_>) -> 
             token_program.key,
             account.key,
             mint.key,
-            owner.key
+            owner.key,
         )?,
-        &[account, mint, owner, token_program, rent]
+        &[account, mint, owner, token_program, rent],
     );
     return result.map_err(|_| ErrorCode::TransferFail.into());
 }
@@ -173,9 +181,9 @@ pub fn spl_token_transfer(params: TokenTransferParams<'_, '_>) -> Result<()> {
             destination.key,
             authority.key,
             &[],
-            amount
+            amount,
         )?,
-        &[source, destination, authority, token_program]
+        &[source, destination, authority, token_program],
     );
 
     return result.map_err(|_| ErrorCode::TransferFail.into());
@@ -186,7 +194,7 @@ pub fn get_withdraw_type(
     dest_owner: Pubkey,
     final_amount: u64,
     vault_ta_amount: u64,
-    withdraw_amount: u64
+    withdraw_amount: u64,
 ) -> WithdrawType {
     let needBurn = final_amount < vault_ta_amount - withdraw_amount;
     if locker.owner == dest_owner {
@@ -212,7 +220,7 @@ pub fn perform_deposit<'b, 'c, 'info>(
     deposit_amount: u64,
     before_amount: u64,
     burn_bump: u8,
-    should_go_in_burn_ta: bool
+    should_go_in_burn_ta: bool,
 ) -> Result<()> {
     let locker = &mut pd.locker;
     let mk = pd.mint.key();
@@ -301,21 +309,27 @@ pub fn perform_deposit<'b, 'c, 'info>(
                         to: dest_ai.clone(),
                         authority: pd.vault_ta.to_account_info(),
                     },
-                    &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+                    &[&[
+                        pd.mint.key().as_ref(),
+                        pd.locker.owner.key().as_ref(),
+                        &[vault_bump],
+                    ]],
                 ),
-                vault_ta.amount.into()
+                vault_ta.amount.into(),
             )?;
-            anchor_spl::token::close_account(
-                CpiContext::new_with_signer(
-                    pd.token_program.to_account_info(),
-                    anchor_spl::token::CloseAccount {
-                        account: pd.vault_ta.to_account_info(),
-                        destination: pd.owner.to_account_info(),
-                        authority: pd.vault_ta.to_account_info(),
-                    },
-                    &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
-                )
-            )?;
+            anchor_spl::token::close_account(CpiContext::new_with_signer(
+                pd.token_program.to_account_info(),
+                anchor_spl::token::CloseAccount {
+                    account: pd.vault_ta.to_account_info(),
+                    destination: pd.owner.to_account_info(),
+                    authority: pd.vault_ta.to_account_info(),
+                },
+                &[&[
+                    pd.mint.key().as_ref(),
+                    pd.locker.owner.key().as_ref(),
+                    &[vault_bump],
+                ]],
+            ))?;
         }
     }
 
@@ -326,7 +340,7 @@ pub fn perform_depositV2<'b, 'c, 'info>(
     mut pd: PerformDepositV2<'b, 'c, 'info>,
     vault_bump: u8,
     deposit_amount: u64,
-    burn_bump: u8
+    burn_bump: u8,
 ) -> Result<()> {
     let should_go_in_burn_ta = true;
     if should_go_in_burn_ta {
@@ -420,21 +434,27 @@ pub fn perform_depositV2<'b, 'c, 'info>(
                         to: dest_ai.clone(),
                         authority: pd.vault_ta.to_account_info(),
                     },
-                    &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+                    &[&[
+                        pd.mint.key().as_ref(),
+                        pd.locker.owner.key().as_ref(),
+                        &[vault_bump],
+                    ]],
                 ),
-                vault_ta.amount.into()
+                vault_ta.amount.into(),
             )?;
-            anchor_spl::token::close_account(
-                CpiContext::new_with_signer(
-                    pd.token_program.to_account_info(),
-                    anchor_spl::token::CloseAccount {
-                        account: pd.vault_ta.to_account_info(),
-                        destination: pd.owner.to_account_info(),
-                        authority: pd.vault_ta.to_account_info(),
-                    },
-                    &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
-                )
-            )?;
+            anchor_spl::token::close_account(CpiContext::new_with_signer(
+                pd.token_program.to_account_info(),
+                anchor_spl::token::CloseAccount {
+                    account: pd.vault_ta.to_account_info(),
+                    destination: pd.owner.to_account_info(),
+                    authority: pd.vault_ta.to_account_info(),
+                },
+                &[&[
+                    pd.mint.key().as_ref(),
+                    pd.locker.owner.key().as_ref(),
+                    &[vault_bump],
+                ]],
+            ))?;
         }
     }
 
@@ -447,7 +467,7 @@ pub fn perform_withdraw<'b, 'c, 'info>(
     before_amount: u64,
     final_amount: u64,
     vault_bump: u8,
-    burn_bump: u8
+    burn_bump: u8,
 ) -> Result<()> {
     let locker = &mut pd.locker;
     let mk = pd.mint.key();
@@ -525,9 +545,8 @@ pub fn perform_withdraw<'b, 'c, 'info>(
         pd.user_ta_owner.key(),
         final_amount,
         sourceTa.amount,
-        withdraw_amount
+        withdraw_amount,
     );
-    
 
     if withdraw_from_burner_ta {
         anchor_spl::token::transfer(
@@ -538,9 +557,9 @@ pub fn perform_withdraw<'b, 'c, 'info>(
                     to: pd.user_ta.to_account_info(),
                     authority: pd.burn_ta.to_account_info(),
                 },
-                &[&[pd.mint.key().as_ref(), &[burn_bump]]]
+                &[&[pd.mint.key().as_ref(), &[burn_bump]]],
             ),
-            withdraw_amount.into()
+            withdraw_amount.into(),
         )?;
     } else {
         anchor_spl::token::transfer(
@@ -551,16 +570,21 @@ pub fn perform_withdraw<'b, 'c, 'info>(
                     to: pd.user_ta.to_account_info(),
                     authority: pd.vault_ta.to_account_info(),
                 },
-                &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+                &[&[
+                    pd.mint.key().as_ref(),
+                    pd.locker.owner.key().as_ref(),
+                    &[vault_bump],
+                ]],
             ),
-            withdraw_amount.into()
+            withdraw_amount.into(),
         )?;
     }
 
     // check if withdraw_type is WithdrawType::OwnerBurn or WithdrawType::NonOwnerBurn
-    if
-        matches!(withdraw_type, WithdrawType::OwnerBurn | WithdrawType::NonOwnerBurn) &&
-        pd.vault_ta.key() != pd.burn_ta.key()
+    if matches!(
+        withdraw_type,
+        WithdrawType::OwnerBurn | WithdrawType::NonOwnerBurn
+    ) && pd.vault_ta.key() != pd.burn_ta.key()
     {
         if *pd.burn_ta.to_account_info().owner != pd.token_program.key() {
             let mc = &pd.mint.clone();
@@ -590,9 +614,13 @@ pub fn perform_withdraw<'b, 'c, 'info>(
                     to: pd.burn_ta.to_account_info(),
                     authority: pd.vault_ta.to_account_info(),
                 },
-                &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+                &[&[
+                    pd.mint.key().as_ref(),
+                    pd.locker.owner.key().as_ref(),
+                    &[vault_bump],
+                ]],
             ),
-            sourceTa.amount - final_amount
+            sourceTa.amount - final_amount,
         )?;
     }
 
@@ -602,17 +630,19 @@ pub fn perform_withdraw<'b, 'c, 'info>(
         false => get_token_account(pd.vault_ta)?,
     };
     if sourceTa.amount == 0 && !withdraw_from_burner_ta {
-        anchor_spl::token::close_account(
-            CpiContext::new_with_signer(
-                pd.token_program.to_account_info(),
-                anchor_spl::token::CloseAccount {
-                    account: pd.vault_ta.to_account_info(),
-                    destination: pd.vault_ta_owner.to_account_info(),
-                    authority: pd.vault_ta.to_account_info(),
-                },
-                &[&[pd.mint.key().as_ref(), pd.vault_ta_owner.key().as_ref(), &[vault_bump]]]
-            )
-        )?;
+        anchor_spl::token::close_account(CpiContext::new_with_signer(
+            pd.token_program.to_account_info(),
+            anchor_spl::token::CloseAccount {
+                account: pd.vault_ta.to_account_info(),
+                destination: pd.vault_ta_owner.to_account_info(),
+                authority: pd.vault_ta.to_account_info(),
+            },
+            &[&[
+                pd.mint.key().as_ref(),
+                pd.vault_ta_owner.key().as_ref(),
+                &[vault_bump],
+            ]],
+        ))?;
     }
 
     Ok(())
@@ -622,7 +652,7 @@ pub fn perform_withdrawV2<'b, 'c, 'info>(
     mut pd: PerformWithdrawV2<'b, 'c, 'info>,
     withdraw_amount: u64,
     vault_bump: u8,
-    burn_bump: u8
+    burn_bump: u8,
 ) -> Result<()> {
     if *pd.burn_ta.owner != pd.token_program.key() {
         let vault_account_seeds = &[pd.mint.to_account_info().key.as_ref(), &[burn_bump]];
@@ -693,59 +723,67 @@ pub fn perform_withdrawV2<'b, 'c, 'info>(
                     to: pd.burn_ta.to_account_info(),
                     authority: pd.vault_ta.to_account_info(),
                 },
-                &[&[pd.mint.key().as_ref(), pd.locker.owner.key().as_ref(), &[vault_bump]]]
+                &[&[
+                    pd.mint.key().as_ref(),
+                    pd.locker.owner.key().as_ref(),
+                    &[vault_bump],
+                ]],
             ),
-            vault_ta_amount.into()
+            vault_ta_amount.into(),
         )?;
         close_vault_ta = true;
     }
 
-    if pd.token_record.is_some() {
-        let mut token_transfer_cpi = TransferV1CpiBuilder::new(pd.token_metadata_program)
-            .token(pd.burn_ta)
-            .token_owner(pd.burn_ta)
-            .destination_token(pd.user_ta)
-            .destination_owner(pd.user_ta_owner)
-            .token_record(pd.token_record)
-            .destination_token_record(pd.destination_token_record)
-            .edition(pd.edition)
-            .mint(pd.mint)
-            .metadata(pd.metadata.unwrap())
-            .authority(pd.burn_ta)
-            .payer(pd.user_ta_owner)
-            .system_program(pd.system_program)
-            .sysvar_instructions(pd.instructions)
-            .spl_token_program(pd.token_program)
-            .spl_ata_program(pd.associated_token_program)
-            .amount(withdraw_amount)
-            .invoke_signed(&[&[pd.mint.key().as_ref(), &[burn_bump]]])?;
-    } else {
-        anchor_spl::token::transfer(
-            CpiContext::new_with_signer(
-                pd.token_program.to_account_info(),
-                anchor_spl::token::Transfer {
-                    from: pd.burn_ta.to_account_info(),
-                    to: pd.user_ta.to_account_info(),
-                    authority: pd.burn_ta.to_account_info(),
-                },
-                &[&[pd.mint.key().as_ref(), &[burn_bump]]]
-            ),
-            withdraw_amount.into()
-        )?;
+    if withdraw_amount > 0 {
+        if pd.token_record.is_some() {
+            let mut token_transfer_cpi = TransferV1CpiBuilder::new(pd.token_metadata_program)
+                .token(pd.burn_ta)
+                .token_owner(pd.burn_ta)
+                .destination_token(pd.user_ta)
+                .destination_owner(pd.user_ta_owner)
+                .token_record(pd.token_record)
+                .destination_token_record(pd.destination_token_record)
+                .edition(pd.edition)
+                .mint(pd.mint)
+                .metadata(pd.metadata.unwrap())
+                .authority(pd.burn_ta)
+                .payer(pd.user_ta_owner)
+                .system_program(pd.system_program)
+                .sysvar_instructions(pd.instructions)
+                .spl_token_program(pd.token_program)
+                .spl_ata_program(pd.associated_token_program)
+                .amount(withdraw_amount)
+                .invoke_signed(&[&[pd.mint.key().as_ref(), &[burn_bump]]])?;
+        } else {
+            anchor_spl::token::transfer(
+                CpiContext::new_with_signer(
+                    pd.token_program.to_account_info(),
+                    anchor_spl::token::Transfer {
+                        from: pd.burn_ta.to_account_info(),
+                        to: pd.user_ta.to_account_info(),
+                        authority: pd.burn_ta.to_account_info(),
+                    },
+                    &[&[pd.mint.key().as_ref(), &[burn_bump]]],
+                ),
+                withdraw_amount.into(),
+            )?;
+        }
     }
 
     if close_vault_ta {
-        anchor_spl::token::close_account(
-            CpiContext::new_with_signer(
-                pd.token_program.to_account_info(),
-                anchor_spl::token::CloseAccount {
-                    account: pd.vault_ta.to_account_info(),
-                    destination: pd.vault_ta_owner.to_account_info(),
-                    authority: pd.vault_ta.to_account_info(),
-                },
-                &[&[pd.mint.key().as_ref(), pd.vault_ta_owner.key().as_ref(), &[vault_bump]]]
-            )
-        )?;
+        anchor_spl::token::close_account(CpiContext::new_with_signer(
+            pd.token_program.to_account_info(),
+            anchor_spl::token::CloseAccount {
+                account: pd.vault_ta.to_account_info(),
+                destination: pd.vault_ta_owner.to_account_info(),
+                authority: pd.vault_ta.to_account_info(),
+            },
+            &[&[
+                pd.mint.key().as_ref(),
+                pd.vault_ta_owner.key().as_ref(),
+                &[vault_bump],
+            ]],
+        ))?;
     }
 
     Ok(())

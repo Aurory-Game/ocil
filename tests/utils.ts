@@ -1,4 +1,10 @@
 import {
+  MINT_SIZE,
+  TOKEN_PROGRAM_ID,
+  createInitializeMint2Instruction,
+  getMinimumBalanceForRentExemptMint,
+} from "@solana/spl-token";
+import {
   TransactionInstruction,
   Signer,
   Connection,
@@ -8,6 +14,9 @@ import {
   AddressLookupTableAccount,
   AddressLookupTableProgram,
   Keypair,
+  Transaction,
+  SystemProgram,
+  ConfirmOptions,
 } from "@solana/web3.js";
 
 interface CreateAndSendV0Tx {
@@ -122,4 +131,33 @@ export async function createLookupTable(
     await connection.getAddressLookupTable(lookupTableAddress)
   ).value;
   return lookupTable;
+}
+
+export async function createMintInstruction(
+  connection: Connection,
+  payer: Signer,
+  mintAuthority: PublicKey,
+  freezeAuthority: PublicKey | null,
+  decimals: number,
+  keypair = Keypair.generate(),
+  programId = TOKEN_PROGRAM_ID
+): Promise<TransactionInstruction[]> {
+  const lamports = await getMinimumBalanceForRentExemptMint(connection);
+
+  return [
+    SystemProgram.createAccount({
+      fromPubkey: payer.publicKey,
+      newAccountPubkey: keypair.publicKey,
+      space: MINT_SIZE,
+      lamports,
+      programId,
+    }),
+    createInitializeMint2Instruction(
+      keypair.publicKey,
+      decimals,
+      mintAuthority,
+      freezeAuthority,
+      programId
+    ),
+  ];
 }

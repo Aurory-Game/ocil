@@ -202,16 +202,22 @@ describe("casier", () => {
 
   it("Init config", async () => {
     // Add your test here.
-
-    const tx = await program.methods
-      .initConfig()
-      .accounts({
-        config: configPDA,
-        feePayer: providerPk,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .rpc();
+    let existingConfig;
+    try {
+      existingConfig = await program.account.config.fetch(configPDA);
+    } catch (e) {}
+    if (!existingConfig) {
+      console.log(">> Initialize Config");
+      const tx = await program.methods
+        .initConfig()
+        .accounts({
+          config: configPDA,
+          feePayer: providerPk,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .rpc();
+    }
   });
 
   it("Init locker", async () => {

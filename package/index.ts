@@ -96,7 +96,8 @@ export class LockerSDK {
    * */
   public async orderMints(
     mints: PublicKey[],
-    unorderedAmounts: anchor.BN[]
+    unorderedAmounts: anchor.BN[],
+    sameTxMintCreation?: PublicKey[]
   ): Promise<{
     orderedMints: PublicKey[];
     pnftCount: number;
@@ -146,8 +147,20 @@ export class LockerSDK {
     }
 
     orderedAmounts.push(...nonCoreAmounts);
-
     const orderedMints = coreAsset.concat(orderedMintsWithoutCore);
+
+    if (sameTxMintCreation?.length) {
+      for (let i = 0; i < sameTxMintCreation.length; i++) {
+        const mint = sameTxMintCreation[i];
+        const index = mints.findIndex((m2) => mint.equals(m2));
+        if (index === -1)
+          throw new Error(
+            "Mints created in the same tx should be included in the mint list."
+          );
+        orderedAmounts.push(unorderedAmounts[index]);
+      }
+      orderedMints.push(...sameTxMintCreation);
+    }
     if (orderedMints.length !== mints.length) {
       throw new Error("mints and orderedMints length mismatch");
     }
@@ -410,18 +423,33 @@ export class LockerSDK {
     return ixs;
   }
 
+  /**
+   * 
+   * @param unorderedMints 
+   * @param userPk 
+   * @param vaultOwners 
+   * @param unorderedWithdrawAmounts 
+   * @param sameTxMintCreation If some mints are created in the same tx, they should be included here on top of unorderedMints.
+      Mint creation txs should be included before the ixs returned by this function.
+   * @returns 
+   */
   async withdrawInstruction(
     unorderedMints: PublicKey[],
     userPk: PublicKey,
     vaultOwners: PublicKey[],
-    unorderedWithdrawAmounts: anchor.BN[]
+    unorderedWithdrawAmounts: anchor.BN[],
+    sameTxMintCreation?: PublicKey[]
   ): Promise<TransactionInstruction[]> {
     const {
       orderedMints,
       pnftCount,
       coreCount,
       orderedAmounts: withdrawAmounts,
-    } = await this.orderMints(unorderedMints, unorderedWithdrawAmounts);
+    } = await this.orderMints(
+      unorderedMints,
+      unorderedWithdrawAmounts,
+      sameTxMintCreation
+    );
 
     const ixs: TransactionInstruction[] = [];
 
