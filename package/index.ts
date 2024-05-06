@@ -52,6 +52,7 @@ import {
   PluginType,
   revokePluginAuthorityV1,
   approvePluginAuthorityV1,
+  fetchAssetV1,
 } from "@metaplex-foundation/mpl-core";
 
 export class LockerSDK {
@@ -89,6 +90,26 @@ export class LockerSDK {
     );
     this.configPDA = configPDA;
     this.coreAssetsAuthority = coreAssetsAuthority;
+  }
+
+  public async getCoreAmount(
+    asset: PublicKey,
+    owner: PublicKey
+  ): Promise<string> {
+    console.log(
+      `getCoreAmount called with ${asset.toString()} and ${owner.toString()}`
+    );
+    try {
+      const fetchedAsset = await fetchAssetV1(
+        this.umi,
+        fromWeb3JsPublicKey(asset)
+      );
+      const fetchedOwner = toWeb3JsPublicKey(fetchedAsset.owner);
+      console.log(fetchedOwner.toString(), owner.toString());
+      return fetchedOwner.equals(owner) ? "1" : "0";
+    } catch (e) {
+      return "0";
+    }
   }
 
   /**
