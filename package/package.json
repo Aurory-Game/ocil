@@ -7,7 +7,7 @@
   "bugs": {
     "url": "https://github.com/Aurory-Game/ocil/issues"
   },
-  "version": "1.1.1",
+  "version": "1.1.2",
   "scripts": {
     "build:program": "anchor build",
     "build": "rm -rf lib && cd .. && yarn --cwd package run build:program && cd package && tsc -p tsconfig.build.json"

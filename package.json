@@ -14,12 +14,12 @@
     "test": "anchor test"
   },
   "dependencies": {
-    "@aurory/lockersdk": "file:../casier/package",
     "@coral-xyz/anchor": "^0.29.0",
     "@metaplex-foundation/mpl-core": "^0.4.2",
     "pg": "^8.11.3"
   },
   "devDependencies": {
+    "@aurory/web3-utils": "^1.4.0",
     "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
     "@metaplex-foundation/umi": "^0.9.1",
     "@metaplex-foundation/umi-bundle-defaults": "^0.9.1",
