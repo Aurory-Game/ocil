@@ -96,16 +96,12 @@ export class LockerSDK {
     asset: PublicKey,
     owner: PublicKey
   ): Promise<string> {
-    console.log(
-      `getCoreAmount called with ${asset.toString()} and ${owner.toString()}`
-    );
     try {
       const fetchedAsset = await fetchAssetV1(
         this.umi,
         fromWeb3JsPublicKey(asset)
       );
       const fetchedOwner = toWeb3JsPublicKey(fetchedAsset.owner);
-      console.log(fetchedOwner.toString(), owner.toString());
       return fetchedOwner.equals(owner) ? "1" : "0";
     } catch (e) {
       return "0";
@@ -122,7 +118,7 @@ export class LockerSDK {
   ): Promise<{
     orderedMints: PublicKey[];
     pnftCount: number;
-    coreCount: number;
+    coreNftCount: number;
     orderedAmounts: anchor.BN[];
   }> {
     const accountInfoArr = await Promise.all(
@@ -131,7 +127,7 @@ export class LockerSDK {
       })
     );
     const orderedMintsWithoutCore: PublicKey[] = [];
-    const coreAsset = [];
+    const coreAssets = [];
     const orderedAmounts: anchor.BN[] = [];
     const nonCoreAmounts: anchor.BN[] = [];
     let pnftCount = 0;
@@ -142,7 +138,7 @@ export class LockerSDK {
       if (accountInfo) {
         const programId = accountInfo.owner;
         if (programId.equals(toWeb3JsPublicKey(MPL_CORE_PROGRAM_ID))) {
-          coreAsset.push(mint);
+          coreAssets.push(mint);
           orderedAmounts.push(amount);
         } else {
           const metadata = await safeFetchMetadata(
@@ -168,7 +164,7 @@ export class LockerSDK {
     }
 
     orderedAmounts.push(...nonCoreAmounts);
-    const orderedMints = coreAsset.concat(orderedMintsWithoutCore);
+    const orderedMints = coreAssets.concat(orderedMintsWithoutCore);
 
     if (sameTxMintCreation?.length) {
       for (let i = 0; i < sameTxMintCreation.length; i++) {
@@ -188,7 +184,7 @@ export class LockerSDK {
     return {
       orderedMints,
       pnftCount,
-      coreCount: coreAsset.length,
+      coreNftCount: coreAssets.length,
       orderedAmounts,
     };
   }
@@ -261,7 +257,7 @@ export class LockerSDK {
     const {
       orderedMints,
       pnftCount,
-      coreCount,
+      coreNftCount,
       orderedAmounts: depositAmounts,
     } = await this.orderMints(unorderedMints, unorderedDepositAmounts);
 
@@ -283,12 +279,12 @@ export class LockerSDK {
       nonce = locker.space;
     }
 
-    if (coreCount > 0) {
+    if (coreNftCount > 0) {
       const coreIxs = await this.depositCoreInstruction(
-        orderedMints.slice(0, coreCount).map((m) => fromWeb3JsPublicKey(m)),
+        orderedMints.slice(0, coreNftCount).map((m) => fromWeb3JsPublicKey(m)),
         fromWeb3JsPublicKey(userPk)
       );
-      const onlyCore = coreCount === orderedMints.length;
+      const onlyCore = coreNftCount === orderedMints.length;
       if (onlyCore) {
         ixs.push(
           await this.program.methods
@@ -307,10 +303,10 @@ export class LockerSDK {
     }
 
     const standardAndPnftIxs = await this.depositStandardAndPnftInstruction(
-      orderedMints.slice(coreCount),
+      orderedMints.slice(coreNftCount),
       pnftCount,
       userPk,
-      depositAmounts.slice(coreCount),
+      depositAmounts.slice(coreNftCount),
       nonce,
       lockerPDA
     );
@@ -464,7 +460,7 @@ export class LockerSDK {
     const {
       orderedMints,
       pnftCount,
-      coreCount,
+      coreNftCount,
       orderedAmounts: withdrawAmounts,
     } = await this.orderMints(
       unorderedMints,
@@ -490,12 +486,12 @@ export class LockerSDK {
       nonce = locker.space;
     }
 
-    if (coreCount > 0) {
+    if (coreNftCount > 0) {
       const coreIxs = await this.withdrawCoreInstruction(
-        orderedMints.slice(0, coreCount).map((m) => fromWeb3JsPublicKey(m)),
+        orderedMints.slice(0, coreNftCount).map((m) => fromWeb3JsPublicKey(m)),
         fromWeb3JsPublicKey(userPk)
       );
-      const onlyCore = coreCount === orderedMints.length;
+      const onlyCore = coreNftCount === orderedMints.length;
       if (onlyCore) {
         ixs.push(
           await this.program.methods
@@ -514,10 +510,10 @@ export class LockerSDK {
     }
 
     const standardAndPnftIxs = await this.withdrawStandardAndPnftInstruction(
-      orderedMints.slice(coreCount),
+      orderedMints.slice(coreNftCount),
       pnftCount,
       userPk,
-      withdrawAmounts.slice(coreCount),
+      withdrawAmounts.slice(coreNftCount),
       nonce,
       lockerPDA,
       vaultOwners
