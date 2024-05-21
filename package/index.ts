@@ -572,21 +572,23 @@ export class LockerSDK {
         [mint.toBuffer(), vaultOwner.toBuffer()],
         this.program.programId
       );
-      remainingAccounts.push({
-        pubkey: vaultTa,
-        isWritable: true,
-        isSigner: false,
-      });
-      remainingAccounts.push({
-        pubkey: vaultOwner,
-        isWritable: true,
-        isSigner: false,
-      });
-      remainingAccounts.push({
-        pubkey: burnTa,
-        isWritable: true,
-        isSigner: false,
-      });
+      remainingAccounts.push(
+        {
+          pubkey: vaultTa,
+          isWritable: true,
+          isSigner: false,
+        },
+        {
+          pubkey: vaultOwner,
+          isWritable: true,
+          isSigner: false,
+        },
+        {
+          pubkey: burnTa,
+          isWritable: true,
+          isSigner: false,
+        }
+      );
       vaultBumps.push(vaultBump);
       if (index < pnftCount) {
         const [metadataPda] = findMetadataPda(this.umi, {
@@ -700,7 +702,7 @@ export class LockerSDK {
           .map((instruction) => toWeb3JsInstruction(instruction))
       );
 
-      if (asset.owner.toString() != userPk.toString()) {
+      if (asset.owner.toString() !== userPk.toString()) {
         // transfer delegate is automatically removed
         ixs.push(
           ...transferV1(this.umi, {
@@ -716,7 +718,6 @@ export class LockerSDK {
           asset: asset.publicKey,
           pluginType: PluginType.TransferDelegate,
           collection,
-          // authority: createNoopSigner(userPk),
           authority: createNoopSigner(fromWeb3JsPublicKey(this.adminPk)),
         })
           .getInstructions()
