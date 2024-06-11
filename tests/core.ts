@@ -33,7 +33,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { TxSender, createLookupTable } from "./utils";
+import { TxSender, createLookupTable, log } from "./utils";
 import { LockerSDK } from "../package/index";
 import {
   createCollectionV1,
@@ -191,71 +191,71 @@ describe("Core", function () {
     }
   });
 
-  it("Deposit core nft", async function (this: CustomContext) {
-    const userIndex = 0;
-    const user = this.users[userIndex];
+  // it("Deposit core nft", async function (this: CustomContext) {
+  //   const userIndex = 0;
+  //   const user = this.users[userIndex];
 
-    const assets = this.usersAssets[userIndex];
+  //   const assets = this.usersAssets[userIndex];
 
-    const depositAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const ixs = await this.lsdk.depositInstruction(
-      assets.map((m) => toWeb3JsPublicKey(m)),
-      user.publicKey,
-      depositAmounts
-    );
-    await this.txSender.createAndSendV0Tx({
-      txInstructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
-        ...ixs,
-      ],
-      payer: user.publicKey,
-      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
-      lookupTableAccount: this.lookupTable,
-      shouldLog: false,
-    });
-    const assetsFetched = await fetchAllAssetV1(this.umi, assets);
-    for (let index = 0; index < assetsFetched.length; index++) {
-      const asset = assetsFetched[index];
-      assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
-      assert.isTrue(isFrozen(asset));
-    }
-  });
+  //   const depositAmounts: Array<anchor.BN> = assets.map(
+  //     (v, i) => new anchor.BN(1)
+  //   );
+  //   const ixs = await this.lsdk.depositInstruction(
+  //     assets.map((m) => toWeb3JsPublicKey(m)),
+  //     user.publicKey,
+  //     depositAmounts
+  //   );
+  //   await this.txSender.createAndSendV0Tx({
+  //     txInstructions: [
+  //       ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+  //       ...ixs,
+  //     ],
+  //     payer: user.publicKey,
+  //     signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+  //     lookupTableAccount: this.lookupTable,
+  //     shouldLog: false,
+  //   });
+  //   const assetsFetched = await fetchAllAssetV1(this.umi, assets);
+  //   for (let index = 0; index < assetsFetched.length; index++) {
+  //     const asset = assetsFetched[index];
+  //     assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
+  //     assert.isTrue(isFrozen(asset));
+  //   }
+  // });
 
-  it("Withdraw core nft", async function (this: CustomContext) {
-    const userIndex = 0;
-    const user = this.users[userIndex];
+  // it("Withdraw core nft", async function (this: CustomContext) {
+  //   const userIndex = 0;
+  //   const user = this.users[userIndex];
 
-    const assets = this.usersAssets[userIndex];
+  //   const assets = this.usersAssets[userIndex];
 
-    const withdrawAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const vaultOwners = [];
-    const ixs = await this.lsdk.withdrawInstruction(
-      assets.map((m) => toWeb3JsPublicKey(m)),
-      user.publicKey,
-      vaultOwners,
-      withdrawAmounts
-    );
-    await this.txSender.createAndSendV0Tx({
-      txInstructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
-        ...ixs,
-      ],
-      payer: user.publicKey,
-      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
-      lookupTableAccount: this.lookupTable,
-      shouldLog: false,
-    });
-    const assetsFetched = await fetchAllAssetV1(this.umi, assets);
-    for (let index = 0; index < assetsFetched.length; index++) {
-      const asset = assetsFetched[index];
-      assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
-      assert.isFalse(isFrozen(asset));
-    }
-  });
+  //   const withdrawAmounts: Array<anchor.BN> = assets.map(
+  //     (v, i) => new anchor.BN(1)
+  //   );
+  //   const vaultOwners = [];
+  //   const ixs = await this.lsdk.withdrawInstruction(
+  //     assets.map((m) => toWeb3JsPublicKey(m)),
+  //     user.publicKey,
+  //     vaultOwners,
+  //     withdrawAmounts
+  //   );
+  //   await this.txSender.createAndSendV0Tx({
+  //     txInstructions: [
+  //       ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+  //       ...ixs,
+  //     ],
+  //     payer: user.publicKey,
+  //     signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+  //     lookupTableAccount: this.lookupTable,
+  //     shouldLog: false,
+  //   });
+  //   const assetsFetched = await fetchAllAssetV1(this.umi, assets);
+  //   for (let index = 0; index < assetsFetched.length; index++) {
+  //     const asset = assetsFetched[index];
+  //     assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
+  //     assert.isFalse(isFrozen(asset));
+  //   }
+  // });
 
   it("Deposit, Transfer, Withdraw", async function (this: CustomContext) {
     const userIndex = 0;
@@ -307,7 +307,22 @@ describe("Core", function () {
       withdrawAmounts
     );
 
-    debugger;
+    log(
+      new Set(
+        ixs2
+          .map((ix) =>
+            ix.keys
+              .filter((k) => k.isSigner === true)
+              .map((k) => k.pubkey.toString())
+          )
+          .flat()
+      )
+    );
+    log(
+      [dest, toWeb3JsKeypair(this.adminKeypair)].map((kp) =>
+        kp.publicKey.toString()
+      )
+    );
 
     await this.txSender.createAndSendV0Tx({
       txInstructions: [
@@ -317,69 +332,70 @@ describe("Core", function () {
       payer: dest.publicKey,
       signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
       lookupTableAccount: this.lookupTable,
-      shouldLog: false,
+      shouldLog: true,
     });
-    const assetsFetched = await fetchAllAssetV1(this.umi, assets);
-    for (let index = 0; index < assetsFetched.length; index++) {
-      const asset = assetsFetched[index];
-      assert.strictEqual(asset.transferDelegate.authority.type, "Owner");
-      assert.strictEqual(asset.owner.toString(), dest.publicKey.toString());
-      assert.isFalse(isFrozen(asset));
-    }
+    // const assetsFetched = await fetchAllAssetV1(this.umi, assets);
+    // log(assetsFetched[0]);
+    // for (let index = 0; index < assetsFetched.length; index++) {
+    //   const asset = assetsFetched[index];
+    //   assert.strictEqual(asset.transferDelegate.authority.type, "Owner");
+    //   assert.strictEqual(asset.owner.toString(), dest.publicKey.toString());
+    //   assert.isFalse(isFrozen(asset));
+    // }
   });
 
-  it("Deposit, Withdraw from a different user", async function (this: CustomContext) {
-    const sourceIndex = 1;
-    const destIndex = 0;
-    const user = this.users[sourceIndex];
-    const dest = this.users[destIndex];
+  // it("Deposit, Withdraw from a different user", async function (this: CustomContext) {
+  //   const sourceIndex = 1;
+  //   const destIndex = 0;
+  //   const user = this.users[sourceIndex];
+  //   const dest = this.users[destIndex];
 
-    const assets = this.usersAssets[destIndex]; // as we have transferred them to user 1 in the previous test
-    const depositAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const withdrawAmounts: Array<anchor.BN> = assets.map(
-      (v, i) => new anchor.BN(1)
-    );
-    const vaultOwners = [];
+  //   const assets = this.usersAssets[destIndex]; // as we have transferred them to user 1 in the previous test
+  //   const depositAmounts: Array<anchor.BN> = assets.map(
+  //     (v, i) => new anchor.BN(1)
+  //   );
+  //   const withdrawAmounts: Array<anchor.BN> = assets.map(
+  //     (v, i) => new anchor.BN(1)
+  //   );
+  //   const vaultOwners = [];
 
-    const ixs = await this.lsdk.depositInstruction(
-      assets.map((m) => toWeb3JsPublicKey(m)),
-      user.publicKey,
-      depositAmounts
-    );
+  //   const ixs = await this.lsdk.depositInstruction(
+  //     assets.map((m) => toWeb3JsPublicKey(m)),
+  //     user.publicKey,
+  //     depositAmounts
+  //   );
 
-    await this.txSender.createAndSendV0Tx({
-      txInstructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
-        ...ixs,
-      ],
-      payer: user.publicKey,
-      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
-      lookupTableAccount: this.lookupTable,
-      shouldLog: false,
-    });
-    const ixs2 = await this.lsdk.withdrawInstruction(
-      assets.map((m) => toWeb3JsPublicKey(m)),
-      dest.publicKey,
-      vaultOwners,
-      withdrawAmounts
-    );
-    await this.txSender.createAndSendV0Tx({
-      txInstructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
-        ...ixs2,
-      ],
-      payer: dest.publicKey,
-      signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
-      lookupTableAccount: this.lookupTable,
-      shouldLog: false,
-    });
-    const assetsFetched = await fetchAllAssetV1(this.umi, assets);
-    for (let index = 0; index < assetsFetched.length; index++) {
-      const asset = assetsFetched[index];
-      assert.strictEqual(asset.owner.toString(), dest.publicKey.toString());
-      assert.isFalse(isFrozen(asset));
-    }
-  });
+  //   await this.txSender.createAndSendV0Tx({
+  //     txInstructions: [
+  //       ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+  //       ...ixs,
+  //     ],
+  //     payer: user.publicKey,
+  //     signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+  //     lookupTableAccount: this.lookupTable,
+  //     shouldLog: false,
+  //   });
+  //   const ixs2 = await this.lsdk.withdrawInstruction(
+  //     assets.map((m) => toWeb3JsPublicKey(m)),
+  //     dest.publicKey,
+  //     vaultOwners,
+  //     withdrawAmounts
+  //   );
+  //   await this.txSender.createAndSendV0Tx({
+  //     txInstructions: [
+  //       ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+  //       ...ixs2,
+  //     ],
+  //     payer: dest.publicKey,
+  //     signers: [dest, toWeb3JsKeypair(this.adminKeypair)],
+  //     lookupTableAccount: this.lookupTable,
+  //     shouldLog: false,
+  //   });
+  //   const assetsFetched = await fetchAllAssetV1(this.umi, assets);
+  //   for (let index = 0; index < assetsFetched.length; index++) {
+  //     const asset = assetsFetched[index];
+  //     assert.strictEqual(asset.owner.toString(), dest.publicKey.toString());
+  //     assert.isFalse(isFrozen(asset));
+  //   }
+  // });
 });

@@ -222,7 +222,7 @@ describe("Mix", function () {
       toWeb3JsPublicKey(this.oldAurorianAuth.publicKey),
       toWeb3JsPublicKey(this.splAurorianCollection.publicKey),
       this.coreAurorianCollection.publicKey,
-      this.coreAuroriansHolder.publicKey
+      toWeb3JsPublicKey(this.coreAuroriansHolder.publicKey)
     );
     this.lookupTable = await createLookupTable(
       this.txSender,
