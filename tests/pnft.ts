@@ -41,7 +41,6 @@ import {
 } from "@solana/spl-token";
 import { TxSender, createLookupTable } from "./utils";
 import { LockerSDK } from "../package/index";
-// import { LockerSDK } from "@aurory/lockersdk";
 
 anchor.setProvider(anchor.AnchorProvider.env());
 

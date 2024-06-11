@@ -1,3 +1,4 @@
+import * as path from "path";
 import {
   MINT_SIZE,
   TOKEN_PROGRAM_ID,
@@ -160,4 +161,29 @@ export async function createMintInstruction(
       programId
     ),
   ];
+}
+
+function getCallerFileAndLine() {
+  const err = new Error();
+  const stack = err.stack?.split("\n");
+  if (stack && stack.length > 3) {
+    // Extract the caller's line number and file name from the stack trace
+    const callerLine = stack[3];
+    const match = callerLine.match(/(?:\s+at\s+|@)(.*):(\d+):\d+\)?$/);
+    if (match && match.length === 3) {
+      const [_, filePath, lineNumber] = match;
+      const greenColor = "\x1b[35m";
+      const resetColor = "\x1b[0m";
+      return `${greenColor}${path.relative(
+        process.cwd(),
+        filePath
+      )}:${lineNumber}${resetColor}`;
+    }
+  }
+  return "unknown";
+}
+
+export function log(...args: any[]) {
+  const caller = getCallerFileAndLine();
+  console.log(`${caller}`, ...args);
 }

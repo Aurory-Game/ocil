@@ -1,5 +1,16 @@
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
-import { MPL_TOKEN_METADATA_PROGRAM_ID } from "@metaplex-foundation/mpl-token-metadata";
+import {
+  MPL_TOKEN_METADATA_PROGRAM_ID,
+  TokenStandard,
+  createV1 as createV1TM,
+  fetchAllDigitalAssetByOwner,
+  fetchAllDigitalAssetWithTokenByOwner,
+  findMasterEditionPda,
+  mintV1,
+  mplTokenMetadata,
+  createMetadataAccountV3,
+  createNft,
+} from "@metaplex-foundation/mpl-token-metadata";
 
 import {
   generateSigner,
@@ -9,10 +20,12 @@ import {
   sol,
   createSignerFromKeypair,
   Keypair as UmiKeypair,
+  percentAmount,
+  KeypairSigner,
 } from "@metaplex-foundation/umi";
 import * as anchor from "@coral-xyz/anchor";
 import { Context } from "mocha";
-import { Program } from "@coral-xyz/anchor";
+import { AnchorProvider, Program, Provider, Wallet } from "@coral-xyz/anchor";
 import { Casier } from "../target/types/casier";
 import {
   AddressLookupTableAccount,
@@ -22,24 +35,29 @@ import {
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
   SYSVAR_RENT_PUBKEY,
+  Signer,
   SystemProgram,
+  TransactionInstruction,
 } from "@solana/web3.js";
 import {
   toWeb3JsPublicKey,
   fromWeb3JsPublicKey,
   toWeb3JsKeypair,
+  toWeb3JsInstruction,
+  fromWeb3JsInstruction,
 } from "@metaplex-foundation/umi-web3js-adapters";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccount,
   createMint,
   mintTo,
+  createMintToInstruction,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { TxSender, createLookupTable } from "./utils";
+import { TxSender, createLookupTable, log } from "./utils";
 import { LockerSDK } from "../package/index";
 import {
-  createCollectionV1,
+  createCollection,
   mplCore,
   createV1,
   pluginAuthorityPair,
@@ -48,12 +66,13 @@ import {
   isFrozen,
 } from "@metaplex-foundation/mpl-core";
 import { assert } from "chai";
-
+import { createNoopSigner } from "@metaplex-foundation/umi";
+import idl from "../target/idl/casier.json";
 anchor.setProvider(anchor.AnchorProvider.env());
 
-const program = anchor.workspace.Casier as Program<Casier>;
-const provider = program.provider as anchor.AnchorProvider;
-const providerPk = (program.provider as anchor.AnchorProvider).wallet.publicKey;
+// const program = anchor.workspace.Casier as Program<Casier>;
+// const provider = program.provider as anchor.AnchorProvider;
+// const providerPk = (program.provider as anchor.AnchorProvider).wallet.publicKey;
 const mints = [];
 
 // 2D array: users index, token accounts by mint index
@@ -73,8 +92,14 @@ interface CustomContext extends Context {
   lsdk: LockerSDK;
   usersAssets: UmiPublicKey[][];
   users: Keypair[];
-  adminKeypair: UmiKeypair;
+  adminKeypair: null;
+  oldAurorianAuth: KeypairSigner;
+  coreAurorianAuth: KeypairSigner;
+  coreAuroriansHolder: KeypairSigner;
+  lockerProgramAdmin: KeypairSigner;
   connection: Connection;
+  coreAurorianCollection: KeypairSigner;
+  splAurorianCollection: KeypairSigner;
 }
 
 describe("Mix", function () {
@@ -82,44 +107,44 @@ describe("Mix", function () {
     const connection = new Connection("http://127.0.0.1:8899", "recent");
     this.connection = connection;
     this.umi = createUmi(connection);
-    this.adminKeypair = this.umi.eddsa.createKeypairFromSecretKey(
+    const umi = this.umi;
+    const adminKeypair = this.umi.eddsa.createKeypairFromSecretKey(
       ((anchor.getProvider() as anchor.AnchorProvider).wallet as anchor.Wallet)
         .payer.secretKey
     );
-    this.umi.use(mplCore());
-    this.umi.use(keypairIdentity(this.adminKeypair));
-    await this.umi.rpc.airdrop(this.adminKeypair.publicKey, sol(100));
-    const umi = this.umi;
-    const collectionUpdateAuthority = this.adminKeypair;
-    const collectionAddress = generateSigner(umi);
-    await createCollectionV1(umi, {
-      name: "Test Collection",
+    this.oldAurorianAuth = generateSigner(this.umi);
+    this.coreAurorianAuth = generateSigner(this.umi);
+    this.coreAuroriansHolder = generateSigner(this.umi);
+    this.lockerProgramAdmin = createSignerFromKeypair(this.umi, adminKeypair);
+    this.coreAurorianCollection = generateSigner(this.umi);
+    this.umi.use(mplCore()).use(mplTokenMetadata());
+    // this.umi.use(keypairIdentity(this.oldAurorianAuth));
+    this.umi.use(keypairIdentity(this.coreAurorianAuth));
+    // this.umi.use(keypairIdentity(this.coreAuroriansHolder));
+    // this.umi.use(keypairIdentity(this.lockerProgramAdmin));
+    // this.umi.use(keypairIdentity(this.coreAurorianCollection));
+    await this.umi.rpc.airdrop(this.oldAurorianAuth.publicKey, sol(100));
+    await this.umi.rpc.airdrop(this.coreAurorianAuth.publicKey, sol(100));
+    await this.umi.rpc.airdrop(this.coreAuroriansHolder.publicKey, sol(100));
+    await this.umi.rpc.airdrop(this.lockerProgramAdmin.publicKey, sol(100));
+    // await this.umi.rpc.airdrop(this.coreAurorianCollection.publicKey, sol(100));
+    await createCollection(umi, {
+      name: "Core Collection",
       uri: "https://example.com/collection.json",
-      collection: collectionAddress,
-      updateAuthority: collectionUpdateAuthority.publicKey, // optional, defaults to payer
+      collection: this.coreAurorianCollection,
+      updateAuthority: this.coreAurorianAuth.publicKey, // optional, defaults to payer
       plugins: [
-        pluginAuthorityPair({
-          type: "PermanentFreezeDelegate",
-          data: {
-            frozen: false,
-          },
-        }),
-        pluginAuthorityPair({
-          type: "PermanentBurnDelegate",
-        }),
-        pluginAuthorityPair({
+        {
           type: "Royalties",
-          data: {
-            basisPoints: 500,
-            creators: [
-              {
-                address: this.adminKeypair.publicKey,
-                percentage: 100,
-              },
-            ],
-            ruleSet: ruleSet("None"), // Compatibility rule set
-          },
-        }),
+          basisPoints: 500,
+          creators: [
+            {
+              address: this.coreAurorianAuth.publicKey,
+              percentage: 100,
+            },
+          ],
+          ruleSet: ruleSet("None"), // Compatibility rule set
+        },
       ],
     }).sendAndConfirm(umi);
 
@@ -130,57 +155,78 @@ describe("Mix", function () {
         return kp;
       })
     );
+
     this.mintCount = 2;
     this.usersAssets = [];
+    let aurorianSequenceCounter = 1000;
+
+    // mint core aurorians
     await Promise.all(
-      this.users.flatMap(async (user, i) => {
-        this.usersAssets.push([]);
-        Array.from({ length: this.mintCount }).map(async () => {
-          const asset = generateSigner(this.umi);
-          this.usersAssets[i].push(asset.publicKey);
-          return createV1(umi, {
-            name: "Test Asset",
-            uri: "https://example.com/asset.json",
-            asset: asset,
-            collection: collectionAddress.publicKey,
-            authority: createSignerFromKeypair(this.umi, this.adminKeypair),
-            plugins: [
-              pluginAuthorityPair({
-                type: "PermanentFreezeDelegate",
-                data: {
-                  frozen: false,
-                },
-                // authority: pluginAuthority("Address", {
-                //   address: this.adminKeypair.publicKey,
-                // }),
-              }),
-              pluginAuthorityPair({
-                type: "TransferDelegate",
-              }),
-            ],
-            owner: fromWeb3JsPublicKey(user.publicKey),
-          }).sendAndConfirm(umi);
-        });
+      this.users.map(async (user, i) => {
+        this.usersAssets[i] = [];
+        const promises = Array.from({ length: this.mintCount }).map(
+          async (_, j) => {
+            const asset = generateSigner(this.umi);
+            this.usersAssets[i].push(asset.publicKey);
+
+            return createV1(this.umi, {
+              name: `Core Aurorian #${aurorianSequenceCounter++}`,
+              uri: "https://example.com/asset.json",
+              asset: asset,
+              collection: this.coreAurorianCollection.publicKey,
+              authority: createSignerFromKeypair(
+                this.umi,
+                this.coreAurorianAuth
+              ),
+              plugins: [
+                pluginAuthorityPair({
+                  type: "PermanentFreezeDelegate",
+                  data: { frozen: false },
+                }),
+                pluginAuthorityPair({ type: "TransferDelegate" }),
+              ],
+              owner: fromWeb3JsPublicKey(user.publicKey),
+            }).sendAndConfirm(this.umi);
+          }
+        );
+
+        await Promise.all(promises);
       })
     );
 
     this.txSender = new TxSender(connection, false);
-    this.program = anchor.workspace.Casier;
-    this.lsdk = new LockerSDK(
-      connection,
-      toWeb3JsPublicKey(this.adminKeypair.publicKey),
-      this.program.programId,
-      toWeb3JsPublicKey(this.adminKeypair.publicKey)
+    this.program = new Program<Casier>(
+      anchor.workspace.Casier.idl,
+      anchor.workspace.Casier.programId,
+      new AnchorProvider(
+        this.connection,
+        new Wallet(toWeb3JsKeypair(this.lockerProgramAdmin)),
+        {
+          commitment: "recent",
+        }
+      )
     );
     const [configPDA] = PublicKey.findProgramAddressSync(
       [anchor.utils.bytes.utf8.encode("config")],
       this.program.programId
     );
 
-    const adminPk = toWeb3JsPublicKey(this.adminKeypair.publicKey);
+    const adminPk = toWeb3JsPublicKey(this.lockerProgramAdmin.publicKey);
+    this.splAurorianCollection = generateSigner(umi);
+
+    this.lsdk = new LockerSDK(
+      connection,
+      toWeb3JsPublicKey(this.lockerProgramAdmin.publicKey),
+      this.program.programId,
+      toWeb3JsPublicKey(this.coreAurorianAuth.publicKey),
+      toWeb3JsPublicKey(this.oldAurorianAuth.publicKey),
+      toWeb3JsPublicKey(this.splAurorianCollection.publicKey),
+      this.coreAurorianCollection.publicKey,
+      this.coreAuroriansHolder.publicKey
+    );
     this.lookupTable = await createLookupTable(
       this.txSender,
-      toWeb3JsKeypair(this.adminKeypair),
+      toWeb3JsKeypair(this.lockerProgramAdmin),
       [
         configPDA,
         adminPk,
@@ -203,12 +249,21 @@ describe("Mix", function () {
         .initConfig()
         .accounts({
           config: configPDA,
-          feePayer: this.adminKeypair.publicKey,
+          feePayer: this.lockerProgramAdmin.publicKey,
           systemProgram: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .rpc();
     }
+
+    this.umi.use(keypairIdentity(this.oldAurorianAuth));
+    await createNft(umi, {
+      mint: this.splAurorianCollection,
+      name: "Spl Aurorians collection",
+      uri: "https://example.com/my-collection.json",
+      sellerFeeBasisPoints: percentAmount(5.5), // 5.5%
+      isCollection: true,
+    }).sendAndConfirm(umi);
   });
 
   it("Prepare", async function (this: CustomContext) {
@@ -217,7 +272,7 @@ describe("Mix", function () {
     // airdrops sols
     await Promise.all(
       users.map((user) =>
-        provider.connection.requestAirdrop(user.publicKey, 100 * 1e9)
+        this.connection.requestAirdrop(user.publicKey, 100 * 1e9)
       )
     );
 
@@ -228,10 +283,10 @@ describe("Mix", function () {
         .map((mint) => {
           mints.push(mint.publicKey);
           return createMint(
-            provider.connection,
-            toWeb3JsKeypair(this.adminKeypair),
-            providerPk,
-            providerPk,
+            this.connection,
+            toWeb3JsKeypair(this.oldAurorianAuth),
+            toWeb3JsPublicKey(this.oldAurorianAuth.publicKey),
+            toWeb3JsPublicKey(this.oldAurorianAuth.publicKey),
             0,
             mint
           );
@@ -256,8 +311,8 @@ describe("Mix", function () {
             tokenAccounts[index].push(address);
             tokenAccountBumps[index].push(bump);
             return await createAssociatedTokenAccount(
-              provider.connection,
-              toWeb3JsKeypair(this.adminKeypair),
+              this.connection,
+              toWeb3JsKeypair(this.oldAurorianAuth),
               mint,
               user.publicKey
             );
@@ -266,31 +321,55 @@ describe("Mix", function () {
       })
     );
 
-    // mint tokens
-    await Promise.all(
-      mints.flatMap((mint, mintIndex) =>
-        users
-          .slice(0, 2)
-          .map((user, userIndex) =>
-            mintTo(
-              provider.connection,
-              toWeb3JsKeypair(this.adminKeypair),
-              mint,
-              tokenAccounts[userIndex][mintIndex],
-              toWeb3JsPublicKey(this.adminKeypair.publicKey),
-              300
-            )
-          )
-      )
-    );
+    // const a = await Promise.all(
+    const ixs: TransactionInstruction[][] = mints.map((mint, mintIndex) => {
+      let txBuilder = createV1TM(this.umi, {
+        mint,
+        authority: createNoopSigner(this.oldAurorianAuth.publicKey),
+        name: `My NFT #${9000 + mintIndex}`,
+        uri: `https://aurorians.cdn.aurory.io/aurorians-v2/current/metadata/${
+          9000 + mintIndex
+        }.json`,
+        sellerFeeBasisPoints: percentAmount(5.5),
+        tokenStandard: TokenStandard.Fungible,
+        collection: {
+          verified: false,
+          key: this.splAurorianCollection.publicKey,
+        },
+      });
+      const [editionPk] = findMasterEditionPda(this.umi, {
+        mint: fromWeb3JsPublicKey(mint),
+      });
+      users
+        .flatMap((user, userIndex) => {
+          return mintV1(this.umi, {
+            mint,
+            authority: createNoopSigner(this.oldAurorianAuth.publicKey),
+            amount: 10,
+            tokenOwner: fromWeb3JsPublicKey(user.publicKey),
+            // masterEdition: editionPk,
+            tokenStandard: TokenStandard.Fungible,
+          });
+        })
+        .forEach((tx) => (txBuilder = txBuilder.add(tx)));
+      return txBuilder.getInstructions().map((ix) => toWeb3JsInstruction(ix));
+    });
+    // );
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: ixs.flat(),
+      payer: toWeb3JsPublicKey(this.oldAurorianAuth.publicKey),
+      signers: [toWeb3JsKeypair(this.oldAurorianAuth)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
 
-    // initialize vault token accounts
+    // // initialize vault token accounts
     await Promise.all(
       users.map((user, index) =>
         mints.map(async (mint) => {
           const [ta, bump] = await PublicKey.findProgramAddress(
             [mint.toBuffer(), user.publicKey.toBuffer()],
-            program.programId
+            this.program.programId
           );
           if (vaultTAs[index]) {
             vaultTAs[index].push(ta);
@@ -332,7 +411,11 @@ describe("Mix", function () {
         ...ixs,
       ],
       payer: user.publicKey,
-      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      signers: [
+        user,
+        toWeb3JsKeypair(this.lockerProgramAdmin),
+        toWeb3JsKeypair(this.coreAurorianAuth),
+      ],
       lookupTableAccount: this.lookupTable,
       shouldLog: false,
     });
@@ -341,12 +424,16 @@ describe("Mix", function () {
       const asset = assetsFetched[index];
       assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
       assert.isTrue(isFrozen(asset));
+      // assert.strictEqual(
+      //   asset.transferDelegate?.authority?.type,
+      //   "UpdateAuthority"
+      // );
     }
     for (let index = 0; index < mints.length; index++) {
       const mint = mints[index];
       const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
         [mint.toBuffer()],
-        program.programId
+        this.program.programId
       );
       await this.connection.getParsedAccountInfo(burnTa);
       const burnAccount = await this.connection.getParsedAccountInfo(burnTa);
@@ -382,7 +469,11 @@ describe("Mix", function () {
         ...ixs,
       ],
       payer: user.publicKey,
-      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      signers: [
+        user,
+        toWeb3JsKeypair(this.lockerProgramAdmin),
+        toWeb3JsKeypair(this.coreAurorianAuth),
+      ],
       lookupTableAccount: this.lookupTable,
       shouldLog: false,
     });
@@ -391,12 +482,13 @@ describe("Mix", function () {
       const asset = assetsFetched[index];
       assert.strictEqual(asset.owner.toString(), user.publicKey.toString());
       assert.isFalse(isFrozen(asset));
+      assert.strictEqual(asset.transferDelegate?.authority?.type, "Owner");
     }
     for (let index = 0; index < mints.length; index++) {
       const mint = mints[index];
       const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
         [mint.toBuffer()],
-        program.programId
+        this.program.programId
       );
       await this.connection.getParsedAccountInfo(burnTa);
       const burnAccount = await this.connection.getParsedAccountInfo(burnTa);

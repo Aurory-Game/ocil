@@ -3,42 +3,6 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{Mint, Token, TokenAccount},
 };
-#[derive(Accounts)]
-pub struct Initialize {}
-
-#[derive(Accounts)]
-pub struct Deposit<'info> {
-    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
-    pub config: Account<'info, Config>,
-    #[account(
-        mut,
-        seeds = [ owner.key().as_ref() ],
-        bump,
-        has_one = owner,
-    )]
-    pub locker: Account<'info, Locker>,
-    pub mint: Account<'info, Mint>,
-    #[account(mut)]
-    pub owner: Signer<'info>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-    #[account(
-        mut,
-        has_one = owner,
-        has_one = mint,
-    )]
-    pub user_ta: Account<'info, TokenAccount>,
-    #[account(mut)]
-    /// CHECK:
-    pub vault_ta: UncheckedAccount<'info>,
-    /// CHECK:
-    #[account(mut)]
-    pub burn_ta: UncheckedAccount<'info>,
-    pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
-    pub rent: Sysvar<'info, Rent>,
-}
-
 pub struct PerformDeposit<'b, 'c, 'info> {
     pub config: &'b mut Account<'info, Config>,
     pub locker: &'c mut Account<'info, Locker>,
@@ -164,39 +128,6 @@ pub struct Withdraw<'info> {
 }
 
 #[derive(Accounts)]
-pub struct WithdrawV2<'info> {
-    #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
-    pub config: Account<'info, Config>,
-    #[account(mut)]
-    pub locker: Account<'info, Locker>,
-    pub mint: Account<'info, Mint>,
-    #[account(mut)]
-    pub admin: Signer<'info>,
-    #[account(mut)]
-    /// CHECK:
-    pub user_ta: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub user_ta_owner: Signer<'info>,
-    /// CHECK:
-    #[account(
-        mut,
-        // has_one = mint,
-        // constraint = vault_ta.owner == vault_ta.key(),
-    )]
-    pub vault_ta: UncheckedAccount<'info>,
-    /// CHECK:
-    #[account(mut)]
-    pub vault_ta_owner: AccountInfo<'info>,
-    /// CHECK:
-    #[account(mut)]
-    pub burn_ta: UncheckedAccount<'info>,
-    pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub rent: Sysvar<'info, Rent>,
-}
-
-#[derive(Accounts)]
 pub struct WithdrawV2Batch<'info> {
     #[account(seeds = [b"config".as_ref()], bump, has_one = admin, constraint = !config.is_frozen)]
     pub config: Account<'info, Config>,
@@ -270,17 +201,6 @@ pub struct InitConfig<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(_space: u64)]
-pub struct InitLocker<'info> {
-    #[account(init, seeds = [owner.key().as_ref()], bump, payer = owner, space = _space as usize)]
-    pub locker: Account<'info, Locker>,
-    #[account(mut)]
-    pub owner: Signer<'info>,
-    pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
-}
-
-#[derive(Accounts)]
 pub struct InitLockerV2<'info> {
     #[account(init, seeds = [owner.key().as_ref()], bump, payer = owner, space = Locker::MAX_SIZE)]
     pub locker: Account<'info, Locker>,
@@ -288,24 +208,6 @@ pub struct InitLockerV2<'info> {
     pub owner: Signer<'info>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
-}
-
-#[derive(Accounts)]
-#[instruction(_space: u64)]
-pub struct IncreaseLockerSize {
-    // #[account(
-    //     mut,
-    //     seeds = [ fee_payer.key().as_ref() ],
-    //     bump,
-    //     realloc = _space
-    //     payer = fee_payer,
-    //     space = _space as usize
-    // )]
-    // locker: Account<'info, Locker>,
-    // #[account(mut)]
-    // fee_payer: Signer<'info>,
-    // system_program: Program<'info, System>,
-    // rent: Sysvar<'info, Rent>,
 }
 
 #[account]

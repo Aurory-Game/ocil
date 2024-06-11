@@ -6,20 +6,14 @@ use crate::utils::*;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{pubkey::Pubkey, rent::Rent};
 use anchor_spl;
-use anchor_spl::token::{Mint, TokenAccount};
+use anchor_spl::{associated_token::AssociatedToken, token::Token};
 // declare_id!("CAsieqooSrgVxhgWRwh21gyjq7Rmuhmo4qTW9XzXtAvW");
 declare_id!("FLoc9nBwGb2ayzVzb5GC9NttuPY3CxMhd4KDnApr79Ab");
 
 #[program]
 pub mod casier {
-    use anchor_lang::solana_program::system_program;
-    use anchor_spl::{associated_token::AssociatedToken, token::Token};
 
     use super::*;
-
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        Ok(())
-    }
 
     pub fn init_config(ctx: Context<InitConfig>) -> Result<()> {
         ctx.accounts.config.admin = ctx.accounts.fee_payer.key();
@@ -27,54 +21,9 @@ pub mod casier {
         Ok(())
     }
 
-    pub fn init_locker(ctx: Context<InitLocker>, _space: u64) -> Result<()> {
-        ctx.accounts.locker.owner = ctx.accounts.owner.key();
-        ctx.accounts.locker.space = ctx.accounts.locker.to_account_info().data_len() as u64;
-        Ok(())
-    }
-
     pub fn init_locker_v2(ctx: Context<InitLockerV2>) -> Result<()> {
         ctx.accounts.locker.owner = ctx.accounts.owner.key();
         ctx.accounts.locker.space = 0 as u64;
-        Ok(())
-    }
-
-    pub fn increase_locker_size(ctx: Context<IncreaseLockerSize>, _new_size: u64) -> Result<()> {
-        Ok(())
-    }
-
-    /*
-     * Deposits deposit_amount into the vault if the current mint's amount in the locker is before_amount.
-     * burn_ta is an admin controlled TA
-     */
-    pub fn deposit<'a, 'b, 'c, 'info>(
-        ctx: Context<'a, 'b, 'c, 'info, Deposit>,
-        vault_bump: u8,
-        deposit_amount: u64,
-        before_amount: u64,
-        burn_bump: u8,
-        should_go_in_burn_ta: bool,
-    ) -> Result<()> {
-        perform_deposit(
-            PerformDeposit {
-                config: &mut ctx.accounts.config,
-                locker: &mut ctx.accounts.locker,
-                mint: &ctx.accounts.mint.to_account_info(),
-                owner: &mut ctx.accounts.owner,
-                admin: &mut ctx.accounts.admin,
-                user_ta: &ctx.accounts.user_ta.to_account_info(),
-                vault_ta: &ctx.accounts.vault_ta.to_account_info(),
-                burn_ta: &ctx.accounts.burn_ta.to_account_info(),
-                system_program: &mut ctx.accounts.system_program,
-                token_program: &mut ctx.accounts.token_program,
-                rent: &mut ctx.accounts.rent,
-            },
-            vault_bump,
-            deposit_amount,
-            before_amount,
-            burn_bump,
-            should_go_in_burn_ta,
-        )?;
         Ok(())
     }
 
@@ -88,8 +37,7 @@ pub mod casier {
     ) -> Result<()> {
         const PNFT_CHUNK_SIZE: u8 = 8;
         const NORMAL_CHUNK_SIZE: u8 = 4;
-        let mut pnft_ra_length =
-            pnft_count * PNFT_CHUNK_SIZE + (if pnft_count > 0 { 3 } else { 0 });
+        let pnft_ra_length = pnft_count * PNFT_CHUNK_SIZE + (if pnft_count > 0 { 3 } else { 0 });
         if ((ctx.remaining_accounts.len() as u8) - pnft_ra_length) % NORMAL_CHUNK_SIZE != 0 {
             return Err(error!(ErrorCode::WrongRemainingAccountsSize));
         }
@@ -140,7 +88,7 @@ pub mod casier {
                 pd.destination_token_record = Some(&remaining_accounts[index + 6]);
                 pd.edition = Some(&remaining_accounts[index + 7]);
             }
-            perform_depositV2(
+            perform_deposit_v2(
                 pd,
                 vault_bumps[mint_index],
                 deposit_amounts[mint_index],
@@ -156,39 +104,6 @@ pub mod casier {
         Ok(())
     }
 
-    pub fn withdraw_v2<'a, 'b, 'c, 'info>(
-        ctx: Context<'a, 'b, 'c, 'info, WithdrawV2>,
-        vault_bump: u8,
-        burn_bump: u8,
-        withdraw_amount: u64,
-        before_amount: u64,
-        final_amount: u64,
-    ) -> Result<()> {
-        let pd = PerformWithdraw {
-            config: &mut ctx.accounts.config,
-            locker: &mut ctx.accounts.locker,
-            mint: &ctx.accounts.mint.to_account_info(),
-            admin: &mut ctx.accounts.admin,
-            user_ta_owner: &ctx.accounts.user_ta_owner,
-            user_ta: &ctx.accounts.user_ta.to_account_info(),
-            vault_ta: &ctx.accounts.vault_ta.to_account_info(),
-            vault_ta_owner: &ctx.accounts.vault_ta_owner,
-            burn_ta: &ctx.accounts.burn_ta.to_account_info(),
-            system_program: &ctx.accounts.system_program,
-            token_program: &ctx.accounts.token_program,
-            associated_token_program: &ctx.accounts.associated_token_program,
-            rent: &ctx.accounts.rent,
-        };
-        perform_withdraw(
-            pd,
-            withdraw_amount,
-            before_amount,
-            final_amount,
-            vault_bump,
-            burn_bump,
-        )
-    }
-
     pub fn withdraw_v2_batch<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, WithdrawV2Batch<'info>>,
         withdraw_amounts: Vec<u64>,
@@ -199,8 +114,7 @@ pub mod casier {
     ) -> Result<()> {
         const PNFT_CHUNK_SIZE: u8 = 9;
         const NORMAL_CHUNK_SIZE: u8 = 5;
-        let mut pnft_ra_length =
-            pnft_count * PNFT_CHUNK_SIZE + (if pnft_count > 0 { 2 } else { 0 });
+        let pnft_ra_length = pnft_count * PNFT_CHUNK_SIZE + (if pnft_count > 0 { 2 } else { 0 });
         if ((ctx.remaining_accounts.len() as u8) - pnft_ra_length) % NORMAL_CHUNK_SIZE != 0 {
             return Err(error!(ErrorCode::WrongRemainingAccountsSize));
         }
@@ -253,7 +167,7 @@ pub mod casier {
                 pd.destination_token_record = Some(&remaining_accounts[index + 7]);
                 pd.edition = Some(&remaining_accounts[index + 8]);
             }
-            perform_withdrawV2(
+            perform_withdraw_v2(
                 pd,
                 withdraw_amounts[mint_index],
                 vault_bumps[mint_index],
