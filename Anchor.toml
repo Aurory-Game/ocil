@@ -37,4 +37,4 @@ address = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/core.ts"
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/transfer-delegate.ts"
