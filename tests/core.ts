@@ -9,6 +9,7 @@ import {
   sol,
   createSignerFromKeypair,
   Keypair as UmiKeypair,
+  createNoopSigner,
 } from "@metaplex-foundation/umi";
 import * as anchor from "@coral-xyz/anchor";
 import { Context } from "mocha";
@@ -28,12 +29,13 @@ import {
   toWeb3JsPublicKey,
   fromWeb3JsPublicKey,
   toWeb3JsKeypair,
+  toWeb3JsInstruction,
 } from "@metaplex-foundation/umi-web3js-adapters";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { TxSender, createLookupTable } from "./utils";
+import { TxSender, createLookupTable, log } from "./utils";
 import { LockerSDK } from "../package/index";
 import {
   createCollectionV1,
@@ -44,8 +46,11 @@ import {
   fetchAllAssetV1,
   isFrozen,
   create,
+  fetchAsset,
+  revokePluginAuthority,
 } from "@metaplex-foundation/mpl-core";
 import { assert } from "chai";
+import { fromWeb3JsKeypair } from "@metaplex-foundation/umi-web3js-adapters";
 
 anchor.setProvider(anchor.AnchorProvider.env());
 
@@ -59,6 +64,7 @@ interface CustomContext extends Context {
   users: Keypair[];
   admin: Keypair;
   adminKeypair: UmiKeypair;
+  coreCollection: UmiPublicKey;
 }
 
 describe("Core", function () {
@@ -75,6 +81,7 @@ describe("Core", function () {
     const umi = this.umi;
     const collectionUpdateAuthority = this.adminKeypair;
     const collectionAddress = generateSigner(umi);
+    this.coreCollection = collectionAddress.publicKey;
     await createCollectionV1(umi, {
       name: "Test Collection",
       uri: "https://example.com/collection.json",
@@ -199,7 +206,7 @@ describe("Core", function () {
     const userIndex = 0;
     const user = this.users[userIndex];
 
-    const assets = this.usersAssets[userIndex];
+    const assets = this.usersAssets[userIndex].slice(0, 1);
 
     const depositAmounts: Array<anchor.BN> = assets.map(
       (v, i) => new anchor.BN(1)
@@ -383,5 +390,81 @@ describe("Core", function () {
       assert.strictEqual(asset.owner.toString(), dest.publicKey.toString());
       assert.isFalse(isFrozen(asset));
     }
+  });
+
+  it("Withdraw when auth doesn't have the transfer delegate", async function (this: CustomContext) {
+    const sourceIndex = 1;
+    const user = this.users[sourceIndex];
+
+    const assets = this.usersAssets[sourceIndex].slice(0, 1); // as we have transferred them to user 1 in the previous test
+    const asset = assets[0];
+    const depositAmounts: Array<anchor.BN> = assets.map(
+      (v, i) => new anchor.BN(1)
+    );
+    const withdrawAmounts: Array<anchor.BN> = assets.map(
+      (v, i) => new anchor.BN(1)
+    );
+    const vaultOwners = [];
+
+    const ixs = await this.lsdk.depositInstruction(
+      assets.map((m) => toWeb3JsPublicKey(m)),
+      user.publicKey,
+      depositAmounts
+    );
+
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs,
+      ],
+      payer: user.publicKey,
+      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+    const ixs2 = revokePluginAuthority(this.umi, {
+      asset: asset,
+      plugin: {
+        type: "TransferDelegate",
+      },
+      collection: this.coreCollection,
+      authority: createNoopSigner(this.adminKeypair.publicKey),
+    })
+      .getInstructions()
+      .map((instruction) => toWeb3JsInstruction(instruction));
+
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs2,
+      ],
+      payer: toWeb3JsPublicKey(this.adminKeypair.publicKey),
+      signers: [toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+
+    const ixs3 = await this.lsdk.withdrawInstruction(
+      assets.map((m) => toWeb3JsPublicKey(m)),
+      user.publicKey,
+      vaultOwners,
+      withdrawAmounts
+    );
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs3,
+      ],
+      payer: user.publicKey,
+      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+    const fetchedAsset = await fetchAsset(this.umi, assets[0]);
+    assert.strictEqual(
+      fetchedAsset.owner.toString(),
+      user.publicKey.toString()
+    );
+    assert.isFalse(isFrozen(fetchedAsset));
   });
 });
