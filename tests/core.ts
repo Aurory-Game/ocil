@@ -43,6 +43,7 @@ import {
   ruleSet,
   fetchAllAssetV1,
   isFrozen,
+  create,
 } from "@metaplex-foundation/mpl-core";
 import { assert } from "chai";
 
@@ -123,20 +124,23 @@ describe("Core", function () {
         Array.from({ length: this.mintCount }).map(async () => {
           const asset = generateSigner(this.umi);
           this.usersAssets[i].push(asset.publicKey);
-          return createV1(umi, {
+          return create(umi, {
             name: "Test Asset",
             uri: "https://example.com/asset.json",
             asset: asset,
-            collection: collectionAddress.publicKey,
+            collection: { publicKey: collectionAddress.publicKey },
             authority: createSignerFromKeypair(this.umi, this.adminKeypair),
             plugins: [
-              pluginAuthorityPair({
+              {
                 type: "PermanentFreezeDelegate",
-                data: {
-                  frozen: false,
+                frozen: false,
+              },
+              {
+                type: "TransferDelegate",
+                authority: {
+                  type: "Owner",
                 },
-              }),
-              pluginAuthorityPair({ type: "TransferDelegate" }),
+              },
             ],
             owner: fromWeb3JsPublicKey(user.publicKey),
           }).sendAndConfirm(umi);
@@ -306,8 +310,6 @@ describe("Core", function () {
       vaultOwners,
       withdrawAmounts
     );
-
-    debugger;
 
     await this.txSender.createAndSendV0Tx({
       txInstructions: [

@@ -28,6 +28,11 @@ import {
   mplTokenMetadata,
   TokenStandard,
   safeFetchMetadata,
+  Metadata,
+  updateV1,
+  unverifyCollectionV1,
+  unverifyCreatorV1,
+  transferV1 as transferV1TM,
 } from "@metaplex-foundation/mpl-token-metadata";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import {
@@ -37,6 +42,7 @@ import {
   unwrapOption,
   signerIdentity,
   createNoopSigner,
+  publicKey,
 } from "@metaplex-foundation/umi";
 import { Casier } from "../target/types/casier";
 import idl from "../target/idl/casier.json";
@@ -45,15 +51,19 @@ import {
   fetchAllAssetV1,
   fetchCollectionV1,
   safeFetchCollectionV1,
-  transferV1,
+  transfer,
   updatePluginV1,
+  updatePlugin,
   createPlugin,
   addressPluginAuthority,
   PluginType,
-  revokePluginAuthorityV1,
-  approvePluginAuthorityV1,
+  revokePluginAuthority,
+  approvePluginAuthority,
   fetchAssetV1,
+  fetchAsset,
 } from "@metaplex-foundation/mpl-core";
+import { log } from "../tests/utils";
+import * as fs from "fs";
 
 export class LockerSDK {
   umi: Umi;
@@ -63,17 +73,29 @@ export class LockerSDK {
   lockerPDA: PublicKey;
   connection: Connection;
   coreAssetsAuthority: anchor.web3.PublicKey;
+  splAurorianAuthority: anchor.web3.PublicKey;
+  oldMintToSeq: Record<string, number>;
+  seqToNewMint: Record<number, string>;
+  splAurorianCollection: anchor.web3.PublicKey;
+  coreAurorianCollection: string;
+  coreAuroriansHolder: string | anchor.web3.PublicKey;
   constructor(
     connection: Connection,
     adminPk: PublicKey,
     programId: PublicKey,
-    coreAssetsAuthority?: PublicKey
+    coreAssetsAuthority?: PublicKey,
+    splAurorianAuthority?: PublicKey,
+    splAurorianCollection?: PublicKey,
+    coreAurorianCollection?: string,
+    coreAuroriansHolder?: PublicKey,
+    oldMintToSeq?: Record<string, number>,
+    seqToNewMint?: Record<number, string>
   ) {
     this.connection = connection;
     this.umi = createUmi(connection);
-    this.umi.use(
-      signerIdentity(createNoopSigner(fromWeb3JsPublicKey(adminPk)))
-    );
+    // this.umi.use(
+    //   signerIdentity(createNoopSigner(fromWeb3JsPublicKey(adminPk)))
+    // );
     this.umi.use(mplTokenMetadata());
     const anchorProvider = new anchor.AnchorProvider(connection, {} as any, {
       commitment: connection.commitment,
@@ -89,7 +111,19 @@ export class LockerSDK {
       this.program.programId
     );
     this.configPDA = configPDA;
-    this.coreAssetsAuthority = coreAssetsAuthority;
+    this.coreAssetsAuthority = coreAssetsAuthority ?? adminPk;
+    this.splAurorianAuthority = splAurorianAuthority ?? adminPk;
+    this.splAurorianCollection = splAurorianCollection;
+    this.coreAurorianCollection = coreAurorianCollection;
+    this.coreAuroriansHolder = coreAuroriansHolder ?? this.coreAssetsAuthority;
+    this.oldMintToSeq =
+      oldMintToSeq ??
+      JSON.parse(
+        fs.readFileSync(__dirname + "/old-mint-to-seq.json").toString()
+      );
+    this.seqToNewMint =
+      seqToNewMint ??
+      JSON.parse(fs.readFileSync(__dirname + "/seq-to-mint.json").toString());
   }
 
   public async getCoreAmount(
@@ -120,6 +154,7 @@ export class LockerSDK {
     pnftCount: number;
     coreNftCount: number;
     orderedAmounts: anchor.BN[];
+    nonCoreMetadata: { metadata: Metadata }[];
   }> {
     const accountInfoArr = await Promise.all(
       mints.map(async (mint) => {
@@ -130,6 +165,7 @@ export class LockerSDK {
     const coreAssets = [];
     const orderedAmounts: anchor.BN[] = [];
     const nonCoreAmounts: anchor.BN[] = [];
+    const nonCoreMetadata: { metadata: Metadata }[] = [];
     let pnftCount = 0;
     for (let i = 0; i < accountInfoArr.length; i++) {
       const mint = mints[i];
@@ -158,6 +194,7 @@ export class LockerSDK {
           } else {
             orderedMintsWithoutCore.push(mint);
             nonCoreAmounts.push(amount);
+            nonCoreMetadata.push({ metadata });
           }
         }
       }
@@ -186,6 +223,7 @@ export class LockerSDK {
       pnftCount,
       coreNftCount: coreAssets.length,
       orderedAmounts,
+      nonCoreMetadata,
     };
   }
 
@@ -221,31 +259,75 @@ export class LockerSDK {
         }
         collections[asset.updateAuthority.address.toString()] = collection;
       }
-      await fetchCollectionV1(this.umi, asset.updateAuthority.address);
-      const freezeIx = updatePluginV1(this.umi, {
+      // await fetchCollectionV1(this.umi, asset.updateAuthority.address);
+      this.umi.use(
+        signerIdentity(createNoopSigner(publicKey(this.coreAssetsAuthority)))
+      );
+      const freezeIxBuilder = updatePlugin(this.umi, {
         asset: asset.publicKey,
-        plugin: createPlugin({
+        plugin: {
           type: "PermanentFreezeDelegate",
-          data: {
-            frozen: true,
-          },
-        }),
+          frozen: true,
+        },
+        authority: createNoopSigner(publicKey(this.coreAssetsAuthority)),
         collection,
-      })
+        payer: createNoopSigner(owner),
+      });
+
+      const freezeIx = freezeIxBuilder
         .getInstructions()
         .map((instruction) => toWeb3JsInstruction(instruction));
       ixs.push(...freezeIx);
-      const transferIx = approvePluginAuthorityV1(this.umi, {
+      const transferIx = approvePluginAuthority(this.umi, {
         asset: asset.publicKey,
         collection,
-        pluginType: PluginType.TransferDelegate,
+        plugin: {
+          type: "TransferDelegate",
+        },
         authority: createNoopSigner(owner),
-        newAuthority: addressPluginAuthority(fromWeb3JsPublicKey(this.adminPk)),
+        // newAuthority: {
+        //   type: "UpdateAuthority",
+        // },
+        newAuthority: {
+          type: "Address",
+          address: fromWeb3JsPublicKey(this.coreAssetsAuthority),
+        },
       })
         .getInstructions()
         .map((instruction) => toWeb3JsInstruction(instruction));
       ixs.push(...transferIx);
     }
+    return ixs;
+  }
+
+  async depositCoreInstructionWrapper(
+    orderedMints: PublicKey[],
+    coreNftCount: number,
+    userPk: PublicKey,
+    nonce: anchor.BN,
+    lockerPDA: PublicKey
+  ): Promise<TransactionInstruction[]> {
+    const ixs: TransactionInstruction[] = [];
+    const coreIxs = await this.depositCoreInstruction(
+      orderedMints.slice(0, coreNftCount).map((m) => fromWeb3JsPublicKey(m)),
+      fromWeb3JsPublicKey(userPk)
+    );
+    const onlyCore = coreNftCount === orderedMints.length;
+    if (onlyCore) {
+      ixs.push(
+        await this.program.methods
+          .incNonce(nonce)
+          .accounts({
+            config: this.configPDA,
+            locker: lockerPDA,
+            admin: this.adminPk,
+          })
+          .instruction()
+      );
+      ixs.push(...coreIxs);
+      return ixs;
+    }
+    ixs.push(...coreIxs);
     return ixs;
   }
 
@@ -259,9 +341,9 @@ export class LockerSDK {
       pnftCount,
       coreNftCount,
       orderedAmounts: depositAmounts,
+      nonCoreMetadata,
     } = await this.orderMints(unorderedMints, unorderedDepositAmounts);
 
-    const ixs: TransactionInstruction[] = [];
     const [lockerPDA] = PublicKey.findProgramAddressSync(
       [userPk.toBuffer()],
       this.program.programId
@@ -271,6 +353,7 @@ export class LockerSDK {
       lockerPDA
     );
     let nonce = new anchor.BN(0);
+    const ixs: TransactionInstruction[] = [];
 
     if (lockerInitIx) {
       ixs.push(lockerInitIx);
@@ -279,40 +362,127 @@ export class LockerSDK {
       nonce = locker.space;
     }
 
-    if (coreNftCount > 0) {
-      const coreIxs = await this.depositCoreInstruction(
-        orderedMints.slice(0, coreNftCount).map((m) => fromWeb3JsPublicKey(m)),
-        fromWeb3JsPublicKey(userPk)
-      );
-      const onlyCore = coreNftCount === orderedMints.length;
-      if (onlyCore) {
-        ixs.push(
-          await this.program.methods
-            .incNonce(nonce)
-            .accounts({
-              config: this.configPDA,
-              locker: lockerPDA,
-              admin: this.adminPk,
-            })
-            .instruction()
+    if (
+      orderedMints.length === 1 &&
+      nonCoreMetadata.length === 1 &&
+      this.isSplAurorian(nonCoreMetadata[0])
+    ) {
+      const { ixs: unverifyOldAndTransferNewIx } =
+        await this.unverifyOldAndTransferNewAurorian(
+          nonCoreMetadata[0],
+          userPk,
+          nonce,
+          lockerPDA
         );
-        ixs.push(...coreIxs);
-        return ixs;
-      }
+      ixs.push(...unverifyOldAndTransferNewIx);
+      return ixs;
+    }
+
+    if (coreNftCount > 0) {
+      const coreIxs = await this.depositCoreInstructionWrapper(
+        orderedMints,
+        coreNftCount,
+        userPk,
+        nonce,
+        lockerPDA
+      );
       ixs.push(...coreIxs);
     }
 
-    const standardAndPnftIxs = await this.depositStandardAndPnftInstruction(
-      orderedMints.slice(coreNftCount),
-      pnftCount,
-      userPk,
-      depositAmounts.slice(coreNftCount),
-      nonce,
-      lockerPDA
-    );
-    ixs.push(...standardAndPnftIxs);
-
+    if (orderedMints.length > coreNftCount) {
+      const standardAndPnftIxs = await this.depositStandardAndPnftInstruction(
+        orderedMints.slice(coreNftCount),
+        pnftCount,
+        userPk,
+        depositAmounts.slice(coreNftCount),
+        nonce,
+        lockerPDA
+      );
+      ixs.push(...standardAndPnftIxs);
+    }
     return ixs;
+  }
+  async unverifyOldAndTransferNewAurorian(
+    nonCoreMetadata: { metadata: Metadata },
+    userPk: anchor.web3.PublicKey,
+    nonce: anchor.BN,
+    lockerPDA: PublicKey
+  ): Promise<{ ixs: anchor.web3.TransactionInstruction[]; newMint: string }> {
+    const ixs: anchor.web3.TransactionInstruction[] = [];
+    ixs.push(
+      await this.program.methods
+        .incNonce(nonce)
+        .accounts({
+          config: this.configPDA,
+          locker: lockerPDA,
+          admin: this.adminPk,
+        })
+        .instruction()
+    );
+
+    const metadata = nonCoreMetadata.metadata;
+    const mint = metadata.mint;
+    const sequence = this.oldMintToSeq[mint.toString()];
+    const newMint = this.seqToNewMint[sequence];
+    const masterEdition = findMasterEditionPda(this.umi, {
+      mint: publicKey(mint),
+    });
+    const fetchedAsset = await fetchAssetV1(this.umi, publicKey(newMint));
+    this.umi.use(signerIdentity(createNoopSigner(publicKey(userPk))));
+    const txBuilder = transferV1TM(this.umi, {
+      mint: publicKey(mint),
+      destinationOwner: publicKey(this.coreAssetsAuthority),
+      payer: createNoopSigner(publicKey(userPk)),
+      authority: createNoopSigner(publicKey(userPk)),
+      edition: masterEdition,
+      tokenStandard: TokenStandard.NonFungibleEdition,
+    })
+      .add(
+        transfer(this.umi, {
+          asset: {
+            publicKey: publicKey(newMint),
+            owner: publicKey(this.coreAuroriansHolder),
+          },
+          payer: createNoopSigner(publicKey(userPk)),
+          newOwner: publicKey(userPk),
+          collection: { publicKey: publicKey(this.coreAurorianCollection) },
+          authority: createNoopSigner(publicKey(this.coreAuroriansHolder)),
+        })
+      )
+      .add(
+        updatePlugin(this.umi, {
+          asset: publicKey(newMint),
+          plugin: {
+            type: "PermanentFreezeDelegate",
+            frozen: true,
+          },
+          authority: createNoopSigner(publicKey(this.coreAssetsAuthority)),
+          collection: publicKey(this.coreAurorianCollection),
+          payer: createNoopSigner(publicKey(userPk)),
+        })
+      )
+      .add(
+        approvePluginAuthority(this.umi, {
+          asset: publicKey(newMint),
+          collection: publicKey(this.coreAurorianCollection),
+          plugin: {
+            type: "TransferDelegate",
+          },
+          authority: createNoopSigner(publicKey(userPk)),
+          // newAuthority: {
+          //   type: "UpdateAuthority",
+          // },
+          newAuthority: {
+            type: "Address",
+            address: fromWeb3JsPublicKey(this.coreAssetsAuthority),
+          },
+        })
+      );
+    ixs.push(
+      ...txBuilder.getInstructions().map((ix) => toWeb3JsInstruction(ix))
+    );
+
+    return { ixs, newMint };
   }
 
   async depositStandardAndPnftInstruction(
@@ -438,6 +608,15 @@ export class LockerSDK {
         .instruction()
     );
     return ixs;
+  }
+
+  isSplAurorian({ metadata }: { metadata: Metadata }) {
+    const regex = /^(Aurorian|Helios) #\d+$/;
+    const name = metadata?.name;
+    if (name && regex.test(name)) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -686,39 +865,49 @@ export class LockerSDK {
         }
         collections[asset.updateAuthority.address.toString()] = collection;
       }
-      await fetchCollectionV1(this.umi, asset.updateAuthority.address);
+      // await fetchCollectionV1(this.umi, asset.updateAuthority.address);
+
       ixs.push(
-        ...updatePluginV1(this.umi, {
+        ...updatePlugin(this.umi, {
           asset: asset.publicKey,
-          plugin: createPlugin({
+          plugin: {
             type: "PermanentFreezeDelegate",
-            data: {
-              frozen: false,
-            },
-          }),
+            frozen: false,
+          },
           collection,
+          payer: createNoopSigner(userPk),
+          authority: createNoopSigner(publicKey(this.coreAssetsAuthority)),
         })
           .getInstructions()
           .map((instruction) => toWeb3JsInstruction(instruction))
       );
+      const assetsFetched0 = await fetchAsset(this.umi, asset.publicKey);
 
       if (asset.owner.toString() !== userPk.toString()) {
         // transfer delegate is automatically removed
         ixs.push(
-          ...transferV1(this.umi, {
-            asset: asset.publicKey,
+          ...transfer(this.umi, {
+            asset: asset,
             collection,
             newOwner: userPk,
+            payer: createNoopSigner(userPk),
+            authority: createNoopSigner(
+              fromWeb3JsPublicKey(this.coreAssetsAuthority)
+            ),
           })
             .getInstructions()
             .map((instruction) => toWeb3JsInstruction(instruction))
         );
       } else {
-        const transferIx = revokePluginAuthorityV1(this.umi, {
+        const transferIx = revokePluginAuthority(this.umi, {
           asset: asset.publicKey,
-          pluginType: PluginType.TransferDelegate,
+          // pluginType: PluginType.TransferDelegate,
+          plugin: {
+            type: "TransferDelegate",
+          },
           collection,
-          authority: createNoopSigner(fromWeb3JsPublicKey(this.adminPk)),
+          payer: createNoopSigner(userPk),
+          authority: createNoopSigner(userPk),
         })
           .getInstructions()
           .map((instruction) => toWeb3JsInstruction(instruction));
