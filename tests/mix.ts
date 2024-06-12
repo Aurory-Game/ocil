@@ -6,10 +6,12 @@ import {
   fetchAllDigitalAssetByOwner,
   fetchAllDigitalAssetWithTokenByOwner,
   findMasterEditionPda,
+  findMetadataPda,
   mintV1,
   mplTokenMetadata,
   createMetadataAccountV3,
   createNft,
+  verifyCreatorV1,
 } from "@metaplex-foundation/mpl-token-metadata";
 
 import {
@@ -64,6 +66,7 @@ import {
   ruleSet,
   fetchAllAssetV1,
   isFrozen,
+  fetchAssetV1,
 } from "@metaplex-foundation/mpl-core";
 import { assert } from "chai";
 import { createNoopSigner } from "@metaplex-foundation/umi";
@@ -222,7 +225,7 @@ describe("Mix", function () {
       toWeb3JsPublicKey(this.oldAurorianAuth.publicKey),
       toWeb3JsPublicKey(this.splAurorianCollection.publicKey),
       this.coreAurorianCollection.publicKey,
-      this.coreAuroriansHolder.publicKey
+      toWeb3JsPublicKey(this.coreAuroriansHolder.publicKey)
     );
     this.lookupTable = await createLookupTable(
       this.txSender,
@@ -496,5 +499,126 @@ describe("Mix", function () {
         ?.tokenAmount?.uiAmount;
       assert.strictEqual(burnAmount, 0);
     }
+  });
+
+  it("Deposit spl aurorian & receive core one", async function (this: CustomContext) {
+    const userIndex = 0;
+    const user = this.users[userIndex];
+
+    const asset = generateSigner(this.umi);
+
+    await createV1(this.umi, {
+      name: `Core Aurorian #2000`,
+      uri: "https://example.com/asset.json",
+      asset: asset,
+      collection: this.coreAurorianCollection.publicKey,
+      authority: createSignerFromKeypair(this.umi, this.coreAurorianAuth),
+      plugins: [
+        pluginAuthorityPair({
+          type: "PermanentFreezeDelegate",
+          data: { frozen: false },
+        }),
+        pluginAuthorityPair({ type: "TransferDelegate" }),
+      ],
+      owner: this.coreAuroriansHolder.publicKey,
+    }).sendAndConfirm(this.umi);
+
+    const splAurorianMint = Keypair.generate();
+    await createMint(
+      this.connection,
+      toWeb3JsKeypair(this.oldAurorianAuth),
+      toWeb3JsPublicKey(this.oldAurorianAuth.publicKey),
+      toWeb3JsPublicKey(this.oldAurorianAuth.publicKey),
+      0,
+      splAurorianMint
+    );
+    const [edition] = findMasterEditionPda(this.umi, {
+      mint: fromWeb3JsPublicKey(splAurorianMint.publicKey),
+    });
+    const [metadata] = findMetadataPda(this.umi, {
+      mint: fromWeb3JsPublicKey(splAurorianMint.publicKey),
+    });
+    this.umi.use(keypairIdentity(this.oldAurorianAuth));
+    await createV1TM(this.umi, {
+      mint: fromWeb3JsPublicKey(splAurorianMint.publicKey),
+      authority: createNoopSigner(this.oldAurorianAuth.publicKey),
+      name: `Aurorian #2000`,
+      uri: `https://aurorians.cdn.aurory.io/aurorians-v2/current/metadata/2000.json`,
+      sellerFeeBasisPoints: percentAmount(5.5),
+      tokenStandard: TokenStandard.NonFungible,
+      collection: {
+        verified: false,
+        key: this.splAurorianCollection.publicKey,
+      },
+    })
+      .add(
+        verifyCreatorV1(this.umi, {
+          metadata,
+          authority: this.oldAurorianAuth,
+        })
+      )
+      .add(
+        mintV1(this.umi, {
+          mint: fromWeb3JsPublicKey(splAurorianMint.publicKey),
+          authority: createNoopSigner(this.oldAurorianAuth.publicKey),
+          amount: 1,
+          tokenOwner: fromWeb3JsPublicKey(user.publicKey),
+          tokenStandard: TokenStandard.NonFungible,
+        })
+      )
+      .sendAndConfirm(this.umi);
+
+    const depositMints = [splAurorianMint.publicKey];
+    const depositAmounts = [new anchor.BN(1)];
+    this.lsdk.oldMintToSeq = {
+      [splAurorianMint.publicKey.toString()]: 2000,
+    };
+    this.lsdk.seqToNewMint = {
+      2000: asset.publicKey,
+    };
+    const ixs = await this.lsdk.depositInstruction(
+      depositMints,
+      user.publicKey,
+      depositAmounts
+    );
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs,
+      ],
+      payer: user.publicKey,
+      signers: [
+        user,
+        // toWeb3JsKeypair(this.oldAurorianAuth),
+        toWeb3JsKeypair(this.lockerProgramAdmin),
+        toWeb3JsKeypair(this.coreAuroriansHolder),
+        toWeb3JsKeypair(this.coreAurorianAuth),
+      ],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+    const fetchedAsset = await fetchAssetV1(this.umi, asset.publicKey);
+    assert.strictEqual(
+      fetchedAsset.owner.toString(),
+      user.publicKey.toString()
+    );
+    assert.isTrue(isFrozen(fetchedAsset));
+    // assert.strictEqual(
+    //   asset.transferDelegate?.authority?.type,
+    //   "UpdateAuthority"
+    // );
+    // for (let index = 0; index < mints.length; index++) {
+    //   const mint = mints[index];
+    //   const [burnTa, burnBump] = PublicKey.findProgramAddressSync(
+    //     [mint.toBuffer()],
+    //     this.program.programId
+    //   );
+    //   await this.connection.getParsedAccountInfo(burnTa);
+    //   const burnAccount = await this.connection.getParsedAccountInfo(burnTa);
+    //   const burnAmount = (
+    //     burnAccount?.value?.data as any
+    //   )?.parsed?.info?.tokenAmount?.uiAmount?.toString();
+    //   assert.strictEqual(burnAmount, (index + 2).toString());
+    // }
   });
 });
