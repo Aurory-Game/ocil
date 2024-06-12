@@ -37,6 +37,11 @@
     bn.js "^5.1.2"
     buffer-layout "^1.2.0"
 
+"@metaplex-foundation/mpl-core@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@metaplex-foundation/mpl-core/-/mpl-core-1.0.1.tgz#298432e207df6a0b7c28cd930cf8ad65d1a0f9bc"
+  integrity sha512-Yjg/X2fHmGONmUx8e/YEYDQQ+oCCZv52B/H+gxSK5i4hm+spGUYwwsfJrdadOym8m1/aEswOOpOOiXmyX62Z8A==
+
 "@metaplex-foundation/mpl-token-metadata@^3.2.1":
   version "3.2.1"
   resolved "https://registry.yarnpkg.com/@metaplex-foundation/mpl-token-metadata/-/mpl-token-metadata-3.2.1.tgz#d424e378a1ee441a6431d2641d66873118d6dc67"
