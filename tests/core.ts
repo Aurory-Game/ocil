@@ -48,6 +48,7 @@ import {
   create,
   fetchAsset,
   revokePluginAuthority,
+  removePlugin,
 } from "@metaplex-foundation/mpl-core";
 import { assert } from "chai";
 import { fromWeb3JsKeypair } from "@metaplex-foundation/umi-web3js-adapters";
@@ -392,6 +393,81 @@ describe("Core", function () {
     }
   });
 
+  it("Deposit without transfer delegate plugin", async function (this: CustomContext) {
+    const sourceIndex = 1;
+    const user = this.users[sourceIndex];
+
+    const assets = this.usersAssets[sourceIndex].slice(0, 1); // as we have transferred them to user 1 in the previous test
+    const asset = assets[0];
+    const depositAmounts: Array<anchor.BN> = assets.map(
+      (v, i) => new anchor.BN(1)
+    );
+    const withdrawAmounts: Array<anchor.BN> = assets.map(
+      (v, i) => new anchor.BN(1)
+    );
+    const vaultOwners = [];
+
+    const ixs0 = await removePlugin(this.umi, {
+      asset: asset,
+      plugin: { type: "TransferDelegate" },
+      collection: this.coreCollection,
+      authority: createNoopSigner(fromWeb3JsPublicKey(user.publicKey)),
+    })
+      .getInstructions()
+      .map((instruction) => toWeb3JsInstruction(instruction));
+
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs0,
+      ],
+      payer: toWeb3JsPublicKey(this.adminKeypair.publicKey),
+      signers: [toWeb3JsKeypair(this.adminKeypair), user],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+
+    const ixs = await this.lsdk.depositInstruction(
+      assets.map((m) => toWeb3JsPublicKey(m)),
+      user.publicKey,
+      depositAmounts
+    );
+
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs,
+      ],
+      payer: user.publicKey,
+      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+
+    const ixs3 = await this.lsdk.withdrawInstruction(
+      assets.map((m) => toWeb3JsPublicKey(m)),
+      user.publicKey,
+      vaultOwners,
+      withdrawAmounts
+    );
+    await this.txSender.createAndSendV0Tx({
+      txInstructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
+        ...ixs3,
+      ],
+      payer: user.publicKey,
+      signers: [user, toWeb3JsKeypair(this.adminKeypair)],
+      lookupTableAccount: this.lookupTable,
+      shouldLog: false,
+    });
+    const fetchedAsset = await fetchAsset(this.umi, assets[0]);
+    assert.strictEqual(
+      fetchedAsset.owner.toString(),
+      user.publicKey.toString()
+    );
+    assert.isFalse(isFrozen(fetchedAsset));
+  });
+
   it("Withdraw when auth doesn't have the transfer delegate", async function (this: CustomContext) {
     const sourceIndex = 1;
     const user = this.users[sourceIndex];
@@ -422,6 +498,7 @@ describe("Core", function () {
       lookupTableAccount: this.lookupTable,
       shouldLog: false,
     });
+
     const ixs2 = revokePluginAuthority(this.umi, {
       asset: asset,
       plugin: {

@@ -40,6 +40,8 @@ const providerPk = (program.provider as anchor.AnchorProvider).wallet.publicKey;
 const txSender = new TxSender(provider.connection);
 const mints = [];
 const users = [...Array(3).keys()].map(() => Keypair.generate());
+const decimals = 9;
+const mantissa = new anchor.BN(10 ** decimals);
 
 let lockerPDAs;
 let configPDA;
@@ -88,7 +90,7 @@ describe("casier-lsdk", () => {
             payer,
             providerPk,
             providerPk,
-            0,
+            decimals,
             mint
           );
         })
@@ -122,6 +124,8 @@ describe("casier-lsdk", () => {
       })
     );
 
+    const amountToMint = mantissa.mul(new anchor.BN(1e9));
+
     // mint tokens
     await Promise.all(
       mints.flatMap((mint, mintIndex) =>
@@ -134,7 +138,7 @@ describe("casier-lsdk", () => {
               mint,
               tokenAccounts[userIndex][mintIndex],
               payer.publicKey,
-              300
+              BigInt(amountToMint.toString())
             )
           )
       )
@@ -226,7 +230,8 @@ describe("casier-lsdk", () => {
   it("Deposit to closed vault TA: u: 0, m: 0, a: 100", async () => {
     const userIndex = 0;
     const mintIndex = 0;
-    const deposit_amount = new anchor.BN(100);
+    const amount = 100;
+    const deposit_amount = mantissa.muln(amount);
 
     const user = users[userIndex];
     const mint = mints[mintIndex];
@@ -254,14 +259,15 @@ describe("casier-lsdk", () => {
     const burnAmount = await getAmountfromTa(burnTa);
     const lockerAccount = await program.account.locker.fetch(locker);
     assert.strictEqual(vaultAmount, 0);
-    assert.strictEqual(burnAmount, deposit_amount.toNumber());
+    assert.strictEqual(burnAmount, amount);
     assert.strictEqual(lockerAccount.space.toNumber(), 1);
   });
 
   it("Deposit to closed vault TA second mint: u: 0, m: 1, a: 100", async () => {
     const userIndex = 0;
     const mintIndex = 1;
-    const deposit_amount = new anchor.BN(100);
+    const amount = 100;
+    const deposit_amount = mantissa.muln(amount);
 
     const user = users[userIndex];
     const mint = mints[mintIndex];
@@ -290,17 +296,18 @@ describe("casier-lsdk", () => {
     const burnAmount = await getAmountfromTa(burnTa);
     const lockerAccount = await program.account.locker.fetch(locker);
     assert.strictEqual(vaultAmount, 0);
-    assert.strictEqual(burnAmount, deposit_amount.toNumber());
+    assert.strictEqual(burnAmount, amount);
     assert.strictEqual(
       lockerAccount.space.toString(),
       (space.toNumber() + 1).toString()
     );
   });
 
-  it("Deposit to opened vault TA: u: 0, m: 0, a: 100", async () => {
+  it("Deposit to opened vault TA: u: 0, m: 0, a: 1e6", async () => {
     const userIndex = 0;
     const mintIndex = 0;
-    const deposit_amount = new anchor.BN(100);
+    const amount = 1e6;
+    const deposit_amount = mantissa.muln(amount);
 
     const user = users[userIndex];
     const mint = mints[mintIndex];
@@ -331,20 +338,18 @@ describe("casier-lsdk", () => {
     const burnAmount = await getAmountfromTa(burnTa);
     const lockerAccount = await program.account.locker.fetch(locker);
     assert.strictEqual(vaultAmount, 0);
-    assert.strictEqual(
-      burnAmount,
-      burnAmountBefore + deposit_amount.toNumber()
-    );
+    assert.strictEqual(burnAmount, burnAmountBefore + amount);
     assert.strictEqual(
       lockerAccount.space.toString(),
       (space.toNumber() + 1).toString()
     );
   });
 
-  it("Withdraw from userTa: u: 0, m: 0, a: 100", async () => {
+  it("Withdraw from userTa: u: 0, m: 0, a: 1e5", async () => {
     const userIndex = 0;
     const mintIndex = 0;
-    const withdrawAmount = new anchor.BN(100);
+    const amount = 1e5;
+    const withdrawAmount = mantissa.muln(amount);
 
     const user = users[userIndex];
     const mint = mints[mintIndex];
@@ -378,20 +383,18 @@ describe("casier-lsdk", () => {
     const burnAmount = await getAmountfromTa(burnTa);
     const lockerAccount = await program.account.locker.fetch(locker);
     assert.strictEqual(vaultAmount, 0);
-    assert.strictEqual(
-      burnAmount,
-      burnAmountBefore - withdrawAmount.toNumber()
-    );
+    assert.strictEqual(burnAmount, burnAmountBefore - amount);
     assert.strictEqual(
       lockerAccount.space.toString(),
       (space.toNumber() + 1).toString()
     );
   });
 
-  it("Withdraw to different userTa than depositor: u: 1, m: 0, a: 10", async () => {
+  it("Withdraw to different userTa than depositor: u: 1, m: 0, a: 1e5", async () => {
     const userIndex = 1;
     const mintIndex = 0;
-    const withdrawAmount = new anchor.BN(10);
+    const amount = 1e5;
+    const withdrawAmount = mantissa.muln(amount);
 
     const user = users[userIndex];
     const mint = mints[mintIndex];
@@ -403,7 +406,6 @@ describe("casier-lsdk", () => {
       program.programId
     );
     const burnAmountBefore = await getAmountfromTa(burnTa);
-
     const ixs = await lsdk.withdrawInstruction(
       [mint],
       user.publicKey,
@@ -423,16 +425,14 @@ describe("casier-lsdk", () => {
     const burnAmount = await getAmountfromTa(burnTa);
     const lockerAccount = await program.account.locker.fetch(locker);
     assert.strictEqual(vaultAmount, 0);
-    assert.strictEqual(
-      burnAmount,
-      burnAmountBefore - withdrawAmount.toNumber()
-    );
+    assert.strictEqual(burnAmount, burnAmountBefore - amount);
     assert.strictEqual(lockerAccount.space.toNumber(), 1);
   });
 
-  it("Withdraw to existing locker & non-existing mint: u: 1, m: x, a: 100", async () => {
+  it("Withdraw to existing locker & non-existing mint: u: 1, m: x, a: 1e5", async () => {
     const userIndex = 1;
-    const withdrawAmount = new anchor.BN(100);
+    const amount = 1e5;
+    const withdrawAmount = mantissa.muln(amount);
 
     const user = users[userIndex];
     const mintKp = Keypair.generate();
@@ -462,7 +462,7 @@ describe("casier-lsdk", () => {
       payer,
       providerPk,
       providerPk,
-      0,
+      decimals,
       mintKp
     );
     const mintToIx = createMintToInstruction(
@@ -495,7 +495,7 @@ describe("casier-lsdk", () => {
     const burnAmount = await getAmountfromTa(burnTa);
     const lockerAccount = await program.account.locker.fetch(locker);
     assert.strictEqual(vaultAmount, 0);
-    assert.strictEqual(userAmount, withdrawAmount.toNumber());
+    assert.strictEqual(userAmount, amount);
     assert.strictEqual(
       lockerAccount.space.toString(),
       (space.toNumber() + 1).toString()
@@ -505,7 +505,8 @@ describe("casier-lsdk", () => {
   it("Withdraw to non-existing locker & mint: u: x, m: x, a: 100", async () => {
     const userIndex = 2;
     const user = users[userIndex];
-    const withdrawAmount = new anchor.BN(100);
+    const amount = 1e5;
+    const withdrawAmount = mantissa.muln(amount);
     const mintKp = Keypair.generate();
     const mint = mintKp.publicKey;
     const [userTa] = PublicKey.findProgramAddressSync(
@@ -533,7 +534,7 @@ describe("casier-lsdk", () => {
       payer,
       providerPk,
       providerPk,
-      0,
+      decimals,
       mintKp
     );
     const mintToIx = createMintToInstruction(
@@ -565,7 +566,7 @@ describe("casier-lsdk", () => {
     const vaultAmount = await getAmountfromTa(vaultTa);
     const lockerAccount = await program.account.locker.fetch(locker);
     assert.strictEqual(vaultAmount, 0);
-    assert.strictEqual(userAmount, withdrawAmount.toNumber());
+    assert.strictEqual(userAmount, amount);
     assert.strictEqual(
       lockerAccount.space.toString(),
       (space.toNumber() + 1).toString()
