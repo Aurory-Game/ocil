@@ -61,6 +61,7 @@ import {
   approvePluginAuthority,
   fetchAssetV1,
   fetchAsset,
+  addPlugin,
 } from "@metaplex-foundation/mpl-core";
 import { log } from "../tests/utils";
 import * as fs from "fs";
@@ -135,8 +136,7 @@ export class LockerSDK {
         this.umi,
         fromWeb3JsPublicKey(asset)
       );
-      const fetchedOwner = toWeb3JsPublicKey(fetchedAsset.owner);
-      return fetchedOwner.equals(owner) ? "1" : "0";
+      return fetchedAsset?.permanentFreezeDelegate?.frozen ? "1" : "0";
     } catch (e) {
       return "0";
     }
@@ -278,24 +278,42 @@ export class LockerSDK {
         .getInstructions()
         .map((instruction) => toWeb3JsInstruction(instruction));
       ixs.push(...freezeIx);
-      const transferIx = approvePluginAuthority(this.umi, {
-        asset: asset.publicKey,
-        collection,
-        plugin: {
-          type: "TransferDelegate",
-        },
-        authority: createNoopSigner(owner),
-        // newAuthority: {
-        //   type: "UpdateAuthority",
-        // },
-        newAuthority: {
-          type: "Address",
-          address: fromWeb3JsPublicKey(this.coreAssetsAuthority),
-        },
-      })
-        .getInstructions()
-        .map((instruction) => toWeb3JsInstruction(instruction));
-      ixs.push(...transferIx);
+      if (asset.transferDelegate) {
+        const transferIx = approvePluginAuthority(this.umi, {
+          asset: asset.publicKey,
+          collection,
+          plugin: {
+            type: "TransferDelegate",
+          },
+          authority: createNoopSigner(owner),
+          // newAuthority: {
+          //   type: "UpdateAuthority",
+          // },
+          newAuthority: {
+            type: "Address",
+            address: fromWeb3JsPublicKey(this.coreAssetsAuthority),
+          },
+        })
+          .getInstructions()
+          .map((instruction) => toWeb3JsInstruction(instruction));
+        ixs.push(...transferIx);
+      } else {
+        const transferIx = addPlugin(this.umi, {
+          asset: asset.publicKey,
+          collection,
+          plugin: {
+            type: "TransferDelegate",
+            authority: {
+              type: "Address",
+              address: fromWeb3JsPublicKey(this.coreAssetsAuthority),
+            },
+          },
+          authority: createNoopSigner(owner),
+        })
+          .getInstructions()
+          .map((instruction) => toWeb3JsInstruction(instruction));
+        ixs.push(...transferIx);
+      }
     }
     return ixs;
   }
@@ -706,7 +724,7 @@ export class LockerSDK {
     mints: anchor.web3.PublicKey[],
     pnftCount: number,
     userPk: anchor.web3.PublicKey,
-    withdrawAmounts: any,
+    withdrawAmounts: anchor.BN[],
     nonce: anchor.BN,
     lockerPDA: anchor.web3.PublicKey,
     vaultOwners: PublicKey[]
