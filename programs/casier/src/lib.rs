@@ -6,17 +6,14 @@ use crate::utils::*;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{pubkey::Pubkey, rent::Rent};
 use anchor_spl;
-
+use anchor_spl::{associated_token::AssociatedToken, token::Token};
 // declare_id!("CAsieqooSrgVxhgWRwh21gyjq7Rmuhmo4qTW9XzXtAvW");
 declare_id!("FLoc9nBwGb2ayzVzb5GC9NttuPY3CxMhd4KDnApr79Ab");
 
 #[program]
 pub mod casier {
-    use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        Ok(())
-    }
+    use super::*;
 
     pub fn init_config(ctx: Context<InitConfig>) -> Result<()> {
         ctx.accounts.config.admin = ctx.accounts.fee_payer.key();
@@ -24,317 +21,178 @@ pub mod casier {
         Ok(())
     }
 
-    pub fn init_locker(ctx: Context<InitLocker>, _space: u64) -> Result<()> {
+    pub fn init_locker_v2(ctx: Context<InitLockerV2>) -> Result<()> {
         ctx.accounts.locker.owner = ctx.accounts.owner.key();
-        ctx.accounts.locker.space = ctx.accounts.locker.to_account_info().data_len() as u64;
+        ctx.accounts.locker.space = 0 as u64;
         Ok(())
     }
 
-    pub fn increase_locker_size(ctx: Context<IncreaseLockerSize>, _new_size: u64) -> Result<()> {
-        Ok(())
-    }
-
-    /*
-     * Deposits deposit_amount into the vault if the current mint's amount in the locker is before_amount.
-     * burn_ta is an admin controlled TA
-     */
-    pub fn deposit<'a, 'b, 'c, 'info>(
-        ctx: Context<'a, 'b, 'c, 'info, Deposit>,
-        vault_bump: u8,
-        deposit_amount: u64,
-        before_amount: u64,
-        burn_bump: u8,
-        should_go_in_burn_ta: bool,
+    pub fn deposit_batch<'a, 'b, 'c, 'info>(
+        ctx: Context<'a, 'b, 'c, 'info, DepositBatch<'info>>,
+        deposit_amounts: Vec<u64>,
+        vault_bumps: Vec<u8>,
+        burn_bumps: Vec<u8>,
+        pnft_count: u8,
+        nonce: u64,
     ) -> Result<()> {
-        let locker = &mut ctx.accounts.locker;
-        let mk = ctx.accounts.mint.key();
-        match locker.mints.iter().position(|&lm| lm == mk) {
-            None => {
-                if before_amount > 0 {
-                    return Err(error!(ErrorCode::InvalidBeforeState));
-                }
-                locker.mints.push(mk);
-                locker.amounts.push(deposit_amount);
-            }
-            Some(i) => {
-                if before_amount != locker.amounts[i] {
-                    return Err(error!(ErrorCode::InvalidBeforeState2));
-                }
-                locker.amounts[i] += deposit_amount;
-            }
+        const PNFT_CHUNK_SIZE: u8 = 8;
+        const NORMAL_CHUNK_SIZE: u8 = 4;
+        let pnft_ra_length = pnft_count * PNFT_CHUNK_SIZE + (if pnft_count > 0 { 3 } else { 0 });
+        if ((ctx.remaining_accounts.len() as u8) - pnft_ra_length) % NORMAL_CHUNK_SIZE != 0 {
+            return Err(error!(ErrorCode::WrongRemainingAccountsSize));
         }
-        if should_go_in_burn_ta {
-            if *(ctx.accounts.burn_ta.to_account_info().owner) != ctx.accounts.token_program.key() {
-                let vault_account_seeds = &[
-                    ctx.accounts.mint.to_account_info().key.as_ref(),
-                    &[burn_bump],
-                ];
-                let vault_account_signer = &vault_account_seeds[..];
-                // initialize nft vault account
-                spl_init_token_account(InitializeTokenAccountParams {
-                    account: ctx.accounts.burn_ta.to_account_info(),
-                    account_signer_seeds: vault_account_signer,
-                    mint: ctx.accounts.mint.to_account_info(),
-                    owner: ctx.accounts.burn_ta.to_account_info(),
-                    payer: ctx.accounts.owner.to_account_info(),
-                    system_program: ctx.accounts.system_program.to_account_info(),
-                    token_program: ctx.accounts.token_program.to_account_info(),
-                    rent: ctx.accounts.rent.to_account_info(),
-                })?;
-            }
-        } else {
-            if *(ctx.accounts.vault_ta.to_account_info().owner) != ctx.accounts.token_program.key()
-            {
-                let vault_account_seeds = &[
-                    ctx.accounts.mint.to_account_info().key.as_ref(),
-                    ctx.accounts.owner.key.as_ref(),
-                    &[vault_bump],
-                ];
-                let vault_account_signer = &vault_account_seeds[..];
+        let accounts: &'b mut DepositBatch<'info> = ctx.accounts;
+        let config: &'b mut Account<'info, Config> = &mut accounts.config;
+        let locker: &'b mut Account<'info, Locker> = &mut accounts.locker;
 
-                // initialize nft vault account
-                spl_init_token_account(InitializeTokenAccountParams {
-                    account: ctx.accounts.vault_ta.to_account_info(),
-                    account_signer_seeds: vault_account_signer,
-                    mint: ctx.accounts.mint.to_account_info(),
-                    owner: ctx.accounts.vault_ta.to_account_info(),
-                    payer: ctx.accounts.owner.to_account_info(),
-                    system_program: ctx.accounts.system_program.to_account_info(),
-                    token_program: ctx.accounts.token_program.to_account_info(),
-                    rent: ctx.accounts.rent.to_account_info(),
-                })?;
-            }
+        if locker.space != nonce {
+            return Err(error!(ErrorCode::InvalidBeforeState));
         }
+        locker.space += 1;
 
-        let mut dest_ta = match should_go_in_burn_ta {
-            true => Account::<'_, anchor_spl::token::TokenAccount>::try_from(
-                &ctx.accounts.burn_ta.to_account_info(),
-            )?,
-            false => Account::<'_, anchor_spl::token::TokenAccount>::try_from(
-                &ctx.accounts.vault_ta.to_account_info(),
-            )?,
-        };
-        let is_valid_dest =
-            dest_ta.owner == dest_ta.key() && dest_ta.mint == ctx.accounts.mint.key();
-
-        if !is_valid_dest {
-            return Err(error!(ErrorCode::InvalidVault));
-        }
-
-        spl_token_transfer(TokenTransferParams {
-            source: ctx.accounts.user_ta.to_account_info(),
-            destination: dest_ta.to_account_info(),
-            amount: deposit_amount.into(),
-            authority: ctx.accounts.owner.to_account_info(),
-            authority_signer_seeds: &[],
-            token_program: ctx.accounts.token_program.to_account_info(),
-        })?;
-
-        let vault_lamports = **ctx.accounts.vault_ta.try_borrow_mut_lamports()?;
-        if should_go_in_burn_ta && vault_lamports > 0 {
-            let vault_ta = Account::<'_, anchor_spl::token::TokenAccount>::try_from(
-                &ctx.accounts.vault_ta.to_account_info(),
-            )?;
-            if vault_ta.amount > 0 {
-                anchor_spl::token::transfer(
-                    CpiContext::new_with_signer(
-                        ctx.accounts.token_program.to_account_info(),
-                        anchor_spl::token::Transfer {
-                            from: ctx.accounts.vault_ta.to_account_info(),
-                            to: dest_ta.to_account_info(),
-                            authority: ctx.accounts.vault_ta.to_account_info(),
-                        },
-                        &[&[
-                            ctx.accounts.mint.key().as_ref(),
-                            ctx.accounts.locker.owner.key().as_ref(),
-                            &[vault_bump],
-                        ]],
-                    ),
-                    vault_ta.amount.into(),
-                )?;
-                anchor_spl::token::close_account(CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    anchor_spl::token::CloseAccount {
-                        account: ctx.accounts.vault_ta.to_account_info(),
-                        destination: ctx.accounts.owner.to_account_info(),
-                        authority: ctx.accounts.vault_ta.to_account_info(),
-                    },
-                    &[&[
-                        ctx.accounts.mint.key().as_ref(),
-                        ctx.accounts.locker.owner.key().as_ref(),
-                        &[vault_bump],
-                    ]],
-                ))?;
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn withdraw_v2<'a, 'b, 'c, 'info>(
-        ctx: Context<'a, 'b, 'c, 'info, WithdrawV2>,
-        vault_bump: u8,
-        burn_bump: u8,
-        withdraw_amount: u64,
-        before_amount: u64,
-        final_amount: u64,
-    ) -> Result<()> {
-        let locker = &mut ctx.accounts.locker;
-        let mk = ctx.accounts.mint.key();
-
-        let withdraw_from_burner_ta = ctx.accounts.vault_ta.key() == ctx.accounts.burn_ta.key();
-
-        let mut sourceTa = match withdraw_from_burner_ta {
-            true => Account::<'_, anchor_spl::token::TokenAccount>::try_from(
-                &ctx.accounts.burn_ta.to_account_info(),
-            )?,
-            false => Account::<'_, anchor_spl::token::TokenAccount>::try_from(
-                &ctx.accounts.vault_ta.to_account_info(),
-            )?,
-        };
-        if sourceTa.amount < withdraw_amount {
-            return Err(error!(ErrorCode::InsufficientFunds));
-        }
-
-        match locker.mints.iter().position(|&lm| lm == mk) {
-            Some(mint_position) => {
-                if locker.amounts[mint_position] != before_amount {
-                    return Err(error!(ErrorCode::InvalidBeforeState));
-                } else if final_amount > 0 {
-                    locker.amounts[mint_position] = final_amount;
-                } else {
-                    locker.mints.remove(mint_position);
-                    locker.amounts.remove(mint_position);
-                }
-            }
-            None => {
-                if before_amount != 0 {
-                    return Err(error!(ErrorCode::InvalidBeforeState2));
-                } else if !withdraw_from_burner_ta {
-                    return Err(error!(ErrorCode::WithdrawForMintNotInLocker));
-                } else if final_amount > 0 {
-                    locker.mints.push(mk);
-                    locker.amounts.push(final_amount);
-                }
-            }
-        }
-
-        let withdraw_type = get_withdraw_type(
-            locker,
-            ctx.accounts.user_ta_owner.key(),
-            final_amount,
-            sourceTa.amount,
-            withdraw_amount,
-        );
-
-        if *ctx.accounts.user_ta.to_account_info().owner != ctx.accounts.token_program.key() {
-            let cpi_program = ctx.accounts.associated_token_program.to_account_info();
-            let cpi_accounts = anchor_spl::associated_token::Create {
-                payer: ctx.accounts.user_ta_owner.to_account_info(),
-                associated_token: ctx.accounts.user_ta.to_account_info(),
-                authority: ctx.accounts.user_ta_owner.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-                token_program: ctx.accounts.token_program.to_account_info(),
-                rent: ctx.accounts.rent.to_account_info(),
+        let owner: &'b Signer<'info> = &accounts.owner;
+        let admin: &'b Signer<'info> = &accounts.admin;
+        let system_program: &'b Program<'info, System> = &accounts.system_program;
+        let token_program: &'b Program<'info, Token> = &accounts.token_program;
+        let rent: &'b Sysvar<'info, Rent> = &accounts.rent;
+        let remaining_accounts: &'c [AccountInfo<'info>] = ctx.remaining_accounts;
+        let token_metadata_program = &remaining_accounts[0];
+        let spl_ata_program_info = &remaining_accounts[1];
+        let instructions = &remaining_accounts[2];
+        let mut index = if pnft_count > 0 { 3 } else { 0 };
+        let mut mint_index: usize = 0;
+        while index < remaining_accounts.len() {
+            let mut pd = PerformDepositV2 {
+                config: config,
+                locker: locker,
+                mint: &remaining_accounts[index],
+                owner: owner,
+                admin: admin,
+                user_ta: &remaining_accounts[index + 1],
+                vault_ta: &remaining_accounts[index + 2],
+                burn_ta: &remaining_accounts[index + 3],
+                metadata: None,
+                token_record: None,
+                destination_token_record: None,
+                edition: None,
+                token_metadata_program: token_metadata_program,
+                instructions: instructions,
+                spl_ata_program_info: spl_ata_program_info,
+                system_program: system_program,
+                token_program: token_program,
+                rent: rent,
             };
-            let cpi_ctx = anchor_lang::context::CpiContext::new(cpi_program, cpi_accounts);
-            anchor_spl::associated_token::create(cpi_ctx)?;
-        }
-
-        if withdraw_from_burner_ta {
-            anchor_spl::token::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    anchor_spl::token::Transfer {
-                        from: ctx.accounts.burn_ta.to_account_info(),
-                        to: ctx.accounts.user_ta.to_account_info(),
-                        authority: ctx.accounts.burn_ta.to_account_info(),
-                    },
-                    &[&[ctx.accounts.mint.key().as_ref(), &[burn_bump]]],
-                ),
-                withdraw_amount.into(),
-            )?;
-        } else {
-            anchor_spl::token::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    anchor_spl::token::Transfer {
-                        from: ctx.accounts.vault_ta.to_account_info(),
-                        to: ctx.accounts.user_ta.to_account_info(),
-                        authority: ctx.accounts.vault_ta.to_account_info(),
-                    },
-                    &[&[
-                        ctx.accounts.mint.key().as_ref(),
-                        ctx.accounts.locker.owner.key().as_ref(),
-                        &[vault_bump],
-                    ]],
-                ),
-                withdraw_amount.into(),
-            )?;
-        }
-
-        // check if withdraw_type is WithdrawType::OwnerBurn or WithdrawType::NonOwnerBurn
-        if matches!(
-            withdraw_type,
-            WithdrawType::OwnerBurn | WithdrawType::NonOwnerBurn
-        ) && ctx.accounts.vault_ta.key() != ctx.accounts.burn_ta.key()
-        {
-            if *(ctx.accounts.burn_ta.to_account_info().owner) != ctx.accounts.token_program.key() {
-                let mc = &ctx.accounts.mint.clone();
-                let pk = &mc.key().clone();
-                let pkr = pk.as_ref();
-
-                let vault_account_seeds = &[pkr, &[burn_bump]];
-                let vault_account_signer = &vault_account_seeds[..];
-
-                // initialize nft vault account
-                spl_init_token_account(InitializeTokenAccountParams {
-                    account: ctx.accounts.burn_ta.to_account_info(),
-                    account_signer_seeds: vault_account_signer,
-                    mint: ctx.accounts.mint.to_account_info(),
-                    owner: ctx.accounts.burn_ta.to_account_info(),
-                    payer: ctx.accounts.user_ta_owner.to_account_info(),
-                    system_program: ctx.accounts.system_program.to_account_info(),
-                    token_program: ctx.accounts.token_program.to_account_info(),
-                    rent: ctx.accounts.rent.to_account_info(),
-                })?;
+            if (index as u8) < pnft_ra_length {
+                pd.metadata = Some(&remaining_accounts[index + 4]);
+                pd.token_record = Some(&remaining_accounts[index + 5]);
+                pd.destination_token_record = Some(&remaining_accounts[index + 6]);
+                pd.edition = Some(&remaining_accounts[index + 7]);
             }
-            anchor_spl::token::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    anchor_spl::token::Transfer {
-                        from: ctx.accounts.vault_ta.to_account_info(),
-                        to: ctx.accounts.burn_ta.to_account_info(),
-                        authority: ctx.accounts.vault_ta.to_account_info(),
-                    },
-                    &[&[
-                        ctx.accounts.mint.key().as_ref(),
-                        ctx.accounts.locker.owner.key().as_ref(),
-                        &[vault_bump],
-                    ]],
-                ),
-                sourceTa.amount - final_amount,
+            perform_deposit_v2(
+                pd,
+                vault_bumps[mint_index],
+                deposit_amounts[mint_index],
+                burn_bumps[mint_index],
             )?;
+            index += if pnft_ra_length == 0 || (index as u8) > pnft_ra_length {
+                NORMAL_CHUNK_SIZE as usize
+            } else {
+                PNFT_CHUNK_SIZE as usize
+            };
+            mint_index += 1;
+        }
+        Ok(())
+    }
+
+    pub fn withdraw_v2_batch<'a, 'b, 'c, 'info>(
+        ctx: Context<'a, 'b, 'c, 'info, WithdrawV2Batch<'info>>,
+        withdraw_amounts: Vec<u64>,
+        vault_bumps: Vec<u8>,
+        burn_bumps: Vec<u8>,
+        pnft_count: u8,
+        nonce: u64,
+    ) -> Result<()> {
+        const PNFT_CHUNK_SIZE: u8 = 9;
+        const NORMAL_CHUNK_SIZE: u8 = 5;
+        let pnft_ra_length = pnft_count * PNFT_CHUNK_SIZE + (if pnft_count > 0 { 2 } else { 0 });
+        if ((ctx.remaining_accounts.len() as u8) - pnft_ra_length) % NORMAL_CHUNK_SIZE != 0 {
+            return Err(error!(ErrorCode::WrongRemainingAccountsSize));
+        }
+        let accounts: &'b mut WithdrawV2Batch<'info> = ctx.accounts;
+        let config: &'b mut Account<'info, Config> = &mut accounts.config;
+        let locker: &'b mut Account<'info, Locker> = &mut accounts.locker;
+
+        if locker.space != nonce {
+            return Err(error!(ErrorCode::InvalidBeforeState));
         }
 
-        sourceTa.reload()?;
-        if sourceTa.amount == 0 && !withdraw_from_burner_ta {
-            anchor_spl::token::close_account(CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                anchor_spl::token::CloseAccount {
-                    account: ctx.accounts.vault_ta.to_account_info(),
-                    destination: ctx.accounts.vault_ta_owner.to_account_info(),
-                    authority: ctx.accounts.vault_ta.to_account_info(),
-                },
-                &[&[
-                    ctx.accounts.mint.key().as_ref(),
-                    ctx.accounts.vault_ta_owner.key().as_ref(),
-                    &[vault_bump],
-                ]],
-            ))?;
-        }
+        locker.space += 1;
+        let admin: &'b Signer<'info> = &accounts.admin;
+        let user_ta_owner: &'b Signer<'info> = &accounts.user_ta_owner;
+        let system_program: &'b Program<'info, System> = &accounts.system_program;
+        let token_program: &'b Program<'info, Token> = &accounts.token_program;
+        let associated_token_program: &'b Program<'info, AssociatedToken> =
+            &accounts.associated_token_program;
+        let rent: &'b Sysvar<'info, Rent> = &accounts.rent;
+        let remaining_accounts: &'c [AccountInfo<'info>] = ctx.remaining_accounts;
+        let token_metadata_program = &remaining_accounts[0];
+        let instructions = &remaining_accounts[1];
+        let mut index = if pnft_count > 0 { 2 } else { 0 };
+        let mut mint_index = 0;
+        while index < remaining_accounts.len() {
+            let mut pd = PerformWithdrawV2 {
+                config: config,
+                locker: locker,
+                mint: &remaining_accounts[index],
+                admin: admin,
+                user_ta_owner: user_ta_owner,
+                user_ta: &remaining_accounts[index + 1],
+                vault_ta: &remaining_accounts[index + 2],
+                vault_ta_owner: &remaining_accounts[index + 3],
+                burn_ta: &remaining_accounts[index + 4],
+                metadata: None,
+                token_record: None,
+                destination_token_record: None,
+                edition: None,
+                token_metadata_program: token_metadata_program,
+                instructions: instructions,
+                system_program: system_program,
+                token_program: token_program,
+                associated_token_program: associated_token_program,
+                rent: rent,
+            };
+            if (index as u8) < pnft_ra_length {
+                pd.metadata = Some(&remaining_accounts[index + 5]);
+                pd.token_record = Some(&remaining_accounts[index + 6]);
+                pd.destination_token_record = Some(&remaining_accounts[index + 7]);
+                pd.edition = Some(&remaining_accounts[index + 8]);
+            }
+            perform_withdraw_v2(
+                pd,
+                withdraw_amounts[mint_index],
+                vault_bumps[mint_index],
+                burn_bumps[mint_index],
+            )?;
 
+            index += if pnft_ra_length == 0 || (index as u8) > pnft_ra_length {
+                NORMAL_CHUNK_SIZE as usize
+            } else {
+                PNFT_CHUNK_SIZE as usize
+            };
+            mint_index += 1;
+        }
+        Ok(())
+    }
+
+    pub fn inc_nonce<'a, 'b, 'c, 'info>(
+        ctx: Context<'a, 'b, 'c, 'info, IncNonce<'info>>,
+        nonce: u64,
+    ) -> Result<()> {
+        ctx.accounts.locker.space;
+        if ctx.accounts.locker.space != nonce {
+            return Err(error!(ErrorCode::InvalidBeforeState));
+        }
+        ctx.accounts.locker.space += 1;
         Ok(())
     }
 }

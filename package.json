@@ -1,20 +1,40 @@
 {
-    "scripts": {
-        "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
-        "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
-    },
-    "dependencies": {
-        "@project-serum/anchor": "^0.24.2",
-        "@solana/spl-token": "^0.2.0"
-    },
-    "devDependencies": {
-        "@types/bn.js": "^5.1.0",
-        "@types/chai": "^4.3.0",
-        "@types/mocha": "^9.0.0",
-        "chai": "^4.3.4",
-        "mocha": "^9.0.3",
-        "prettier": "^2.6.2",
-        "ts-mocha": "^8.0.0",
-        "typescript": "^4.3.5"
-    }
+  "name": "casier",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aurory-Game/ocil.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aurory-Game/ocil/issues"
+  },
+  "scripts": {
+    "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+    "sp": "ts-node -r dotenv/config $1",
+    "test": "anchor test"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@metaplex-foundation/mpl-core": "^1.0.1",
+    "bs58": "^6.0.0",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "@aurory/web3-utils": "^1.4.0",
+    "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
+    "@metaplex-foundation/umi": "^0.9.1",
+    "@metaplex-foundation/umi-bundle-defaults": "^0.9.1",
+    "@metaplex-foundation/umi-web3js-adapters": "^0.9.1",
+    "@solana/spl-token": "^0.3.8",
+    "@solana/web3.js": "^1.87.1",
+    "@types/bn.js": "^5.1.0",
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^9.0.0",
+    "chai": "^4.3.4",
+    "dotenv": "^16.3.1",
+    "mocha": "^9.0.3",
+    "prettier": "^2.6.2",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^4.3.5"
+  }
 }
